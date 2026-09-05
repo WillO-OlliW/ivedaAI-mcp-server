@@ -85,8 +85,10 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     const id = random(), csrf = random();
     this.flows.set(id, { clientId: client.client_id, params, csrf, expires: Date.now() + 300000 });
     res.setHeader("Set-Cookie", `__Host-iveda-login=${id}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`);
-    res.setHeader("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
-    res.setHeader("Referrer-Policy", "no-referrer");
+    // Browsers also apply form-action to the post-login redirect; the exact callback was checked above.
+    res.setHeader("Content-Security-Policy", `default-src 'none'; form-action 'self' ${new URL(params.redirectUri).origin}; frame-ancestors 'none'; base-uri 'none'`);
+    // no-referrer makes native browser form POSTs send Origin: null, defeating the login origin check.
+    res.setHeader("Referrer-Policy", "strict-origin");
     const writes = params.scopes!.includes(WRITE_SCOPE);
     const writeConsent = writes ? '<p><label><input type="checkbox" name="writeConsent" value="yes" required> Allow this app to make changes in IvedaAI using the actions enabled by my administrator and my account permissions</label></p>' : "";
     res.type("html").send(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect IvedaAI</title><main><h1>Connect IvedaAI</h1><p>Sign in to ${escapeHtml(new URL(this.config.upstreamOrigin).host)} with your existing IvedaAI account.</p><p>${escapeHtml(client.client_name ?? client.client_id)} will be able to read data your account can access. ${writes ? "It can also make changes using the actions enabled by your administrator, within your IvedaAI permissions." : "It cannot make changes through this connection."}</p><form method="post" action="/login"><input type="hidden" name="flow" value="${id}"><input type="hidden" name="csrf" value="${csrf}"><p><label>Username <input name="username" autocomplete="username" maxlength="512" required></label></p><p><label>Password <input type="password" name="password" autocomplete="current-password" maxlength="4096" required></label></p><p><label><input type="checkbox" name="consent" value="yes" required> Allow this app to read my IvedaAI data</label></p>${writeConsent}<button type="submit">Sign in and connect</button></form><p>To cancel, close this page.</p></main></html>`);

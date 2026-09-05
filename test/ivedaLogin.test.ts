@@ -154,6 +154,8 @@ describe("existing IvedaAI login", () => {
     const flow = await start();
     expect(flow.response.headers.get("set-cookie")).toMatch(/HttpOnly; Secure; SameSite=Lax/);
     expect(flow.response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(flow.response.headers.get("content-security-policy")).toContain("form-action 'self' https://ai.example;");
+    expect(flow.response.headers.get("referrer-policy")).toBe("strict-origin");
     expect(flow.response.headers.get("cache-control")).toBe("no-store");
     expect(flow.html).toContain('autocomplete="current-password"');
     expect(logins).toHaveLength(0);
@@ -163,10 +165,10 @@ describe("existing IvedaAI login", () => {
     expect((await start({ redirect_uri: "https://attacker.example/receive" })).response.status).toBe(400);
     expect(logins).toHaveLength(0);
   });
-  it.each(["cookie", "csrf", "origin", "consent"])("requires %s before validating credentials", async field => {
+  it.each(["cookie", "csrf", "origin", "null-origin", "consent"])("requires %s before validating credentials", async field => {
     const flow = await start();
     const response = await login(flow, field === "csrf" ? { csrf: "forged" } : field === "consent" ? { consent: "no" } : {},
-      field === "cookie" ? { cookie: "" } : field === "origin" ? { origin: "https://attacker.example" } : {});
+      field === "cookie" ? { cookie: "" } : field === "origin" ? { origin: "https://attacker.example" } : field === "null-origin" ? { origin: "null" } : {});
     expect(response.status).toBeGreaterThanOrEqual(400); expect(logins).toHaveLength(0);
   });
   it("rejects an invalid password without returning upstream diagnostics or codes", async () => {
