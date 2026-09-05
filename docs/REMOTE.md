@@ -1,6 +1,6 @@
 # Authenticated HTTP preview
 
-The repository now includes a read-only Streamable HTTP entry point, `dist/http.js`, alongside
+The repository includes a Streamable HTTP entry point, `dist/http.js`, with optional controlled writes alongside
 the unchanged stdio command. It is tested against local mock services and signed test tokens.
 Existing IvedaAI login, token exchange, a camera read, refresh and revocation also passed through
 a temporary loopback connector against the authorized test deployment. It has **not** been deployed
@@ -20,16 +20,18 @@ Each HTTP request gets a fresh MCP server and upstream token manager. There are 
 sessions or persistent upstream token caches across requests. This trades additional upstream
 logins for simple isolation in the preview; measure authentication load before production use.
 
-Remote access is always read-only, collection deletion is disabled, secret redaction is enabled,
-and local-file uploads are disabled. Stdio's environment switches cannot enable remote writes
-or uploads. The bundled read-only surface is 55 tools / 132 operations; review its full read
+Remote access defaults to read-only. Collection deletion and local-file uploads remain disabled,
+and secret redaction is enabled. Selected writes require configuration and a verified write scope;
+stdio's environment switches cannot grant remote writes or uploads.
+The bundled read-only surface is 55 tools / 132 operations; review its full read
 surface against the intended users' application grants.
 
 ## Use existing IvedaAI login
 
 No separate identity provider or duplicate user account is required. The connector supplies the
 OAuth compatibility layer using the MCP SDK's authorization-code/PKCE routes. It accepts only
-pre-registered public clients with exact HTTPS callback URLs and the `ivedaai:read` scope.
+pre-registered public clients with exact HTTPS callback URLs and the `ivedaai:read` scope, plus
+`ivedaai:write` when selected actions are enabled and the user consents to changes.
 Copy the exact redirect URI shown by the AI app into the configuration; do not guess a callback
 or allow wildcard destinations. Enter the matching client ID in the AI app's connection setup.
 See [OpenAI callback and OAuth requirements](https://developers.openai.com/plugins/build/auth).
@@ -72,6 +74,35 @@ Do not disable their protections to make the connector work. Application account
 first-login password changes must be completed in IvedaAI. Upstream password/account changes are
 checked on refresh and on subsequent upstream logins; discovery may remain available until local
 revocation or expiry. Each customer's operator must establish its production access-revocation policy.
+
+## Enable selected actions
+
+To enable camera start/stop control, add this property to the installation configuration:
+
+```json
+"allowedWriteOperations": ["POST /api/cameras/{cameraId}/jobs"]
+```
+
+Then reconnect the AI client requesting both `ivedaai:read` and `ivedaai:write`. The native login
+page requires a separate consent checkbox for making changes. A read-only grant stays read-only
+even on an installation with actions enabled. Refresh cannot increase a grant's permissions;
+requesting only the read scope on refresh narrows the new access/refresh token pair.
+
+Only exact configured write operations are advertised and callable. Unknown operations, read
+operations in the write list and collection deletes are rejected at startup. Other actions can
+be enabled by their exact documented operation IDs after their workflow has been validated.
+Application permissions remain authoritative: enabling an operation never bypasses IvedaAI's
+account or record permissions. The allowlist selects operation types, not specific camera IDs.
+
+Compound camera-onboarding and alert-integration helper tools are withheld from the remote surface
+because they perform multiple operations. Use the individually enabled resource operations. Local
+file uploads remain disabled. Write-capable tools advertise both OAuth scopes, readOnlyHint=false
+and a conservative destructiveHint=true so clients can present their normal action confirmations.
+Client annotations are advisory; server-side scope and operation checks enforce access.
+
+For external JWT mode, the issuer must grant the write scope only after its own authorization and
+consent checks. A signed write scope alone cannot enable operations absent from the installation
+allowlist. Restart to apply configuration changes; native grants end on restart.
 
 ## Optional external identity provider
 
@@ -142,6 +173,24 @@ server-to-server MCP clients, including the backend of a browser AI app; it does
 cross-origin browser JavaScript API or permissive CORS. JWKS and IvedaAI certificate verification
 stay enabled. Configure approved private-CA trust on the runtime host where necessary.
 
+For an installation using a private CA or a dedicated self-signed certificate, supply its public
+certificate bundle through `upstreamTls.caFile` (an absolute local path, at most 64 KiB). Obtain and
+verify that certificate through the installation administrator. If the connector reaches an IP
+address but the certificate names a DNS host, `upstreamTls.serverName` can specify that exact name:
+
+```json
+"upstreamTls": {
+  "caFile": "/protected/customer-ca.pem",
+  "serverName": "ivedaai.internal.example"
+}
+```
+
+The origin still fixes the network destination. The override is used for TLS SNI and hostname
+verification against the supplied CA; it does not disable certificate, expiry or hostname checks.
+Trust is confined to each upstream request's dispatcher and is never applied to JWKS requests or
+the whole machine. Include public certificates only, never private keys. Restart after changing
+the CA bundle. Prefer certificates whose names already match the configured upstream URL.
+
 Use an unprivileged dedicated OS account and protect the configuration from other users.
 Complete any IvedaAI first-login password change before starting. Restart to apply configuration
 changes. Do not set a custom `IVEDAAI_SWAGGER_PATH` for the HTTP entry point.
@@ -158,7 +207,8 @@ changes. Do not set a custom `IVEDAAI_SWAGGER_PATH` for the HTTP entry point.
   with at most four per mapped subject. The request deadline is 30 seconds, upstream timeout 25 seconds.
 - Request closure and service shutdown abort that request's upstream work. Cross-request MCP
   cancellation notifications do not cancel another stateless request; no resumable operation state
-  is retained. Writes are disabled, limiting uncertain write outcomes in this preview.
+  is retained. A timed-out or disconnected write may already have reached IvedaAI: inspect the
+  resulting state before retrying. Cancellation and revocation cannot undo an accepted action.
 
 ## Validation and remaining release gates
 

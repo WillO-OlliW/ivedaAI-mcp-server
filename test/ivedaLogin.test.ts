@@ -15,12 +15,13 @@ let service: ReturnType<typeof createIvedaLoginServer>;
 let base: string;
 let logins: string[];
 let disabled = false;
+let writes: { method: string; url: string; owner: string }[];
 async function listen(server: Server) {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 }
 beforeEach(async () => {
-  logins = []; disabled = false;
+  logins = []; disabled = false; writes = [];
   upstream = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
     if (req.url?.endsWith("/oauth2/token")) {
@@ -30,7 +31,14 @@ beforeEach(async () => {
       if (disabled || !["alice", "bob"].includes(username) || fields.get("password") !== "fixture-password") {
         res.writeHead(400); res.end(JSON.stringify({ error: "private upstream diagnostic must not be exposed" }));
       } else res.end(JSON.stringify({ access_token: `upstream-${username}`, expires_in: 3600, token_type: "Bearer" }));
-    } else res.end(JSON.stringify({ cameraId: 1, owner: req.headers.authorization?.replace("Bearer upstream-", "") }));
+    } else {
+      const owner = req.headers.authorization?.replace("Bearer upstream-", "") ?? "";
+      if (req.method !== "GET") {
+        if (owner === "bob") { res.writeHead(403); res.end(JSON.stringify({ error: "Account cannot change cameras" })); return; }
+        writes.push({ method: req.method!, url: req.url!, owner });
+      }
+      res.end(JSON.stringify({ cameraId: 1, owner }));
+    }
   });
   const origin = await listen(upstream);
   service = createIvedaLoginServer({ ...config, upstreamOrigin: origin });
@@ -62,9 +70,9 @@ async function exchange(flow: Flow, code: string, extra: Record<string, string> 
   return form("/token", { client_id: "approved-ai", grant_type: "authorization_code", code, code_verifier: flow.verifier,
     redirect_uri: config.clients[0].redirectUris[0], resource: config.publicUrl, ...extra });
 }
-async function linked(username = "alice") {
-  const flow = await start(); expect(flow.response.status).toBe(200);
-  const response = await login(flow, { username }); expect(response.status).toBe(303);
+async function linked(username = "alice", write = false) {
+  const flow = await start(write ? { scope: "ivedaai:read ivedaai:write" } : {}); expect(flow.response.status).toBe(200);
+  const response = await login(flow, { username, ...(write ? { writeConsent: "yes" } : {}) }); expect(response.status).toBe(303);
   const redirect = new URL(response.headers.get("location")!);
   const tokenResponse = await exchange(flow, redirect.searchParams.get("code")!);
   expect(tokenResponse.status).toBe(200);
@@ -76,6 +84,63 @@ async function discover(token: string) {
 }
 
 describe("existing IvedaAI login", () => {
+  const cameraWrite = "POST /api/cameras/{cameraId}/jobs";
+  async function enableWrites() {
+    await service.close();
+    service = createIvedaLoginServer({ ...config, upstreamOrigin: `http://127.0.0.1:${(upstream.address() as { port: number }).port}`, allowedWriteOperations: [cameraWrite] });
+    base = await listen(service.http);
+  }
+  async function operate(bearer: string, operation = cameraWrite) {
+    const client = new Client({ name: "write-test", version: "1" });
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(base + "/mcp"), { requestInit: { headers: { Authorization: `Bearer ${bearer}` } } }));
+      return await client.callTool({ name: "ivedaai_camera", arguments: { operation, path: { cameraId: 1 }, ...(operation === cameraWrite ? { query: { activate: true } } : {}) } });
+    } finally { await client.close(); }
+  }
+  it("rejects write authorization unless the installation enables specific actions", async () => {
+    const flow = await start({ scope: "ivedaai:read ivedaai:write" });
+    expect(flow.response.status).not.toBe(200); expect(flow.flow).toBe(""); expect(logins).toHaveLength(0);
+  });
+  it("requires separate consent to changes and preserves the read-only login option", async () => {
+    await enableWrites();
+    const flow = await start({ scope: "ivedaai:read ivedaai:write" });
+    expect(flow.html).toContain('name="writeConsent"');
+    expect(flow.html).not.toContain("It cannot make changes");
+    expect((await login(flow)).status).toBe(400); expect(logins).toHaveLength(0);
+    const reader = await linked();
+    expect((await operate(reader.tokens.access_token)).isError).toBe(true); expect(writes).toHaveLength(0);
+  });
+  it("allows consented camera control but withholds unlisted writes and compound helpers", async () => {
+    await enableWrites(); const writer = await linked("alice", true);
+    const list = await (await discover(writer.tokens.access_token)).json();
+    const camera = list.result.tools.find((tool: { name: string }) => tool.name === "ivedaai_camera");
+    expect(camera.securitySchemes[0].scopes).toEqual(["ivedaai:read", "ivedaai:write"]);
+    expect(camera.annotations.readOnlyHint).toBe(false);
+    expect(camera.annotations.destructiveHint).toBe(true);
+    expect(list.result.tools.some((tool: { name: string }) => ["ivedaai_add_camera", "ivedaai_alert_integration"].includes(tool.name))).toBe(false);
+    expect((await operate(writer.tokens.access_token)).isError).not.toBe(true);
+    expect(writes).toEqual([{ method: "POST", url: "/ainvr/api/cameras/1/jobs?activate=true", owner: "alice" }]);
+    expect((await operate(writer.tokens.access_token, "DELETE /api/cameras/{cameraId}")).isError).toBe(true);
+    expect(writes).toHaveLength(1);
+  });
+  it("preserves upstream account denials even when the user consents to write access", async () => {
+    await enableWrites(); const writer = await linked("bob", true);
+    const response = await operate(writer.tokens.access_token);
+    expect(response.isError).toBe(true); expect(response.structuredContent).toMatchObject({ status: 403 });
+    expect(writes).toHaveLength(0);
+  });
+  it("cannot escalate read grants through refresh and keeps narrowed refresh tokens read-only", async () => {
+    await enableWrites(); const reader = await linked();
+    const fields = { client_id: "approved-ai", grant_type: "refresh_token", resource: config.publicUrl };
+    expect((await form("/token", { ...fields, refresh_token: reader.tokens.refresh_token, scope: "ivedaai:read ivedaai:write" })).status).toBe(400);
+    const writer = await linked("alice", true);
+    const narrowResponse = await form("/token", { ...fields, refresh_token: writer.tokens.refresh_token, scope: "ivedaai:read" });
+    expect(narrowResponse.status).toBe(200); const narrowed = await narrowResponse.json();
+    expect(narrowed.scope).toBe("ivedaai:read");
+    expect((await operate(narrowed.access_token)).isError).toBe(true);
+    expect((await form("/token", { ...fields, refresh_token: narrowed.refresh_token, scope: "ivedaai:read ivedaai:write" })).status).toBe(400);
+    expect(writes).toHaveLength(0);
+  });
   it("requires HTTPS installation and callback configuration without stored user passwords", () => {
     expect(ivedaLoginConfigSchema.safeParse(config).success).toBe(true);
     expect(ivedaLoginConfigSchema.safeParse({ ...config, subjects: [] }).success).toBe(false);

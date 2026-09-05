@@ -7,7 +7,7 @@ import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthToke
 import { InvalidGrantError, InvalidRequestError, InvalidTokenError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { TokenManager, type IvedaAIConfig } from "./auth.js";
 import { loadSwagger } from "./swagger.js";
-import { AuthenticationError, httpsUrl, READ_SCOPE, type RemoteSubject } from "./remoteAuth.js";
+import { AuthenticationError, httpsUrl, READ_SCOPE, WRITE_SCOPE, remoteScopes, writeOperationsSchema, upstreamTlsSchema, remoteDispatcher, type RemoteSubject } from "./remoteAuth.js";
 import { createRemoteServer } from "./remoteServer.js";
 
 export const ivedaLoginConfigSchema = z.object({
@@ -15,6 +15,8 @@ export const ivedaLoginConfigSchema = z.object({
   publicUrl: httpsUrl.refine(value => new URL(value).pathname === "/mcp"),
   upstreamOrigin: httpsUrl.refine(value => new URL(value).pathname === "/"),
   port: z.number().int().min(1024).max(65535).default(3000),
+  allowedWriteOperations: writeOperationsSchema,
+  upstreamTls: upstreamTlsSchema,
   clients: z.array(z.object({
     clientId: z.string().min(1).max(200),
     name: z.string().min(1).max(100),
@@ -22,10 +24,10 @@ export const ivedaLoginConfigSchema = z.object({
   }).strict()).min(1).max(20),
 }).strict().refine(c => new Set(c.clients.map(x => x.clientId)).size === c.clients.length, "Duplicate client ID");
 export type IvedaLoginConfig = z.infer<typeof ivedaLoginConfigSchema>;
-type Session = { username: string; password: string; clientId: string; expires: number; controller: AbortController };
+type Session = { username: string; password: string; clientId: string; expires: number; controller: AbortController; scopes: string[] };
 type Flow = { clientId: string; params: AuthorizationParams; csrf: string; expires: number };
 type Code = { sessionId: string; params: AuthorizationParams; expires: number };
-type Token = { sessionId: string; expires: number; used?: boolean };
+type Token = { sessionId: string; expires: number; scopes: string[]; used?: boolean };
 const random = () => randomBytes(32).toString("base64url");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -45,7 +47,7 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   constructor(readonly config: IvedaLoginConfig, readonly validateLogin: (username: string, password: string, signal?: AbortSignal) => Promise<void>) {
     for (const client of config.clients) this.clients.set(client.clientId, {
       client_id: client.clientId, client_name: client.name, redirect_uris: client.redirectUris,
-      token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: READ_SCOPE,
+      token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: remoteScopes(config).join(" "),
     });
     this.sweepTimer = setInterval(() => this.sweep(), 30000); this.sweepTimer.unref();
   }
@@ -69,10 +71,15 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     if (resource?.href !== this.config.publicUrl) throw new InvalidRequestError("Resource must match this MCP endpoint");
   }
   private scope(scopes?: string[]) {
-    if (scopes && (scopes.length !== 1 || scopes[0] !== READ_SCOPE)) throw new InvalidRequestError("Only read access is available");
+    const values = scopes ?? [READ_SCOPE];
+    if (!values.includes(READ_SCOPE) || new Set(values).size !== values.length || values.some(value => !remoteScopes(this.config).includes(value))) {
+      throw new InvalidRequestError("Unsupported access scope");
+    }
+    return [...values];
   }
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response) {
-    this.sweep(); this.resource(params.resource); this.scope(params.scopes);
+    this.sweep(); this.resource(params.resource);
+    params = { ...params, scopes: this.scope(params.scopes) };
     if (this.closed || this.flows.size >= 100 || this.sessions.size >= 200) throw new InvalidRequestError("Please try again later");
     if (!client.redirect_uris.includes(params.redirectUri) || !/^[A-Za-z0-9_-]{43}$/.test(params.codeChallenge)) throw new InvalidRequestError("Invalid authorization request");
     const id = random(), csrf = random();
@@ -80,19 +87,22 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     res.setHeader("Set-Cookie", `__Host-iveda-login=${id}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=300`);
     res.setHeader("Content-Security-Policy", "default-src 'none'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
     res.setHeader("Referrer-Policy", "no-referrer");
-    res.type("html").send(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect IvedaAI</title><main><h1>Connect IvedaAI</h1><p>Sign in to ${escapeHtml(new URL(this.config.upstreamOrigin).host)} with your existing IvedaAI account.</p><p>${escapeHtml(client.client_name ?? client.client_id)} will be able to read data your account can access. It cannot make changes through this connection.</p><form method="post" action="/login"><input type="hidden" name="flow" value="${id}"><input type="hidden" name="csrf" value="${csrf}"><p><label>Username <input name="username" autocomplete="username" maxlength="512" required></label></p><p><label>Password <input type="password" name="password" autocomplete="current-password" maxlength="4096" required></label></p><p><label><input type="checkbox" name="consent" value="yes" required> Allow this app to read my IvedaAI data</label></p><button type="submit">Sign in and connect</button></form><p>To cancel, close this page.</p></main></html>`);
+    const writes = params.scopes!.includes(WRITE_SCOPE);
+    const writeConsent = writes ? '<p><label><input type="checkbox" name="writeConsent" value="yes" required> Allow this app to make changes in IvedaAI using the actions enabled by my administrator and my account permissions</label></p>' : "";
+    res.type("html").send(`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Connect IvedaAI</title><main><h1>Connect IvedaAI</h1><p>Sign in to ${escapeHtml(new URL(this.config.upstreamOrigin).host)} with your existing IvedaAI account.</p><p>${escapeHtml(client.client_name ?? client.client_id)} will be able to read data your account can access. ${writes ? "It can also make changes using the actions enabled by your administrator, within your IvedaAI permissions." : "It cannot make changes through this connection."}</p><form method="post" action="/login"><input type="hidden" name="flow" value="${id}"><input type="hidden" name="csrf" value="${csrf}"><p><label>Username <input name="username" autocomplete="username" maxlength="512" required></label></p><p><label>Password <input type="password" name="password" autocomplete="current-password" maxlength="4096" required></label></p><p><label><input type="checkbox" name="consent" value="yes" required> Allow this app to read my IvedaAI data</label></p>${writeConsent}<button type="submit">Sign in and connect</button></form><p>To cancel, close this page.</p></main></html>`);
   }
-  async completeLogin(flowId: unknown, csrf: unknown, cookie: string | undefined, username: unknown, password: unknown, consent: unknown, signal?: AbortSignal) {
+  async completeLogin(flowId: unknown, csrf: unknown, cookie: string | undefined, username: unknown, password: unknown, consent: unknown, signal?: AbortSignal, writeConsent?: unknown) {
     this.sweep();
     const flow = typeof flowId === "string" ? this.flows.get(flowId) : undefined;
     const cookieValues = cookie?.split(";").map(x => x.trim()).filter(x => x.startsWith("__Host-iveda-login=")) ?? [];
     if (!flow || cookieValues.length !== 1 || !equal(cookieValues[0].slice("__Host-iveda-login=".length), flowId as string) || !equal(csrf, flow.csrf)) throw new InvalidGrantError("Restart the connection and try again");
     this.flows.delete(flowId as string); // Single-use login attempt, including failures.
     if (consent !== "yes" || typeof username !== "string" || !username || username.length > 512 || typeof password !== "string" || !password || password.length > 4096) throw new InvalidGrantError("Sign-in and consent are required");
+    if (flow.params.scopes?.includes(WRITE_SCOPE) && writeConsent !== "yes") throw new InvalidGrantError("Consent to changes is required");
     await this.validateLogin(username, password, signal);
     if (this.closed || signal?.aborted || this.sessions.size >= 200) throw new InvalidGrantError("Restart the connection and try again");
     const sessionId = random(), code = random();
-    this.sessions.set(sessionId, { username, password, clientId: flow.clientId, expires: Date.now() + 3600000, controller: new AbortController() });
+    this.sessions.set(sessionId, { username, password, clientId: flow.clientId, expires: Date.now() + 3600000, controller: new AbortController(), scopes: [...flow.params.scopes!] });
     this.codes.set(hash(code), { sessionId, params: flow.params, expires: Date.now() + 60000 });
     const redirect = new URL(flow.params.redirectUri);
     redirect.searchParams.set("code", code);
@@ -107,14 +117,15 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     return code;
   }
   async challengeForAuthorizationCode(client: OAuthClientInformationFull, code: string) { return this.code(client, code).params.codeChallenge; }
-  private mint(sessionId: string): OAuthTokens {
+  private mint(sessionId: string, requestedScopes?: string[]): OAuthTokens {
     const session = this.sessions.get(sessionId)!;
+    const scopes = [...(requestedScopes ?? session.scopes)];
     if (this.refresh.size >= 4000) throw new InvalidGrantError("Reconnect to continue");
     const access = random(), refresh = random();
     const expires = Math.min(Date.now() + 300000, session.expires);
-    this.access.set(hash(access), { sessionId, expires });
-    this.refresh.set(hash(refresh), { sessionId, expires: session.expires });
-    return { access_token: access, refresh_token: refresh, token_type: "Bearer", expires_in: Math.max(1, Math.floor((expires - Date.now()) / 1000)), scope: READ_SCOPE };
+    this.access.set(hash(access), { sessionId, expires, scopes });
+    this.refresh.set(hash(refresh), { sessionId, expires: session.expires, scopes });
+    return { access_token: access, refresh_token: refresh, token_type: "Bearer", expires_in: Math.max(1, Math.floor((expires - Date.now()) / 1000)), scope: scopes.join(" ") };
   }
   async exchangeAuthorizationCode(client: OAuthClientInformationFull, codeValue: string, _verifier?: string, redirectUri?: string, resource?: URL) {
     this.resource(resource); const code = this.code(client, codeValue);
@@ -126,11 +137,13 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     const token = this.refresh.get(hash(value)); const session = token && this.sessions.get(token.sessionId);
     if (!token || !session || session.clientId !== client.client_id) throw new InvalidGrantError("Invalid refresh token");
     if (token.used) { this.dropSession(token.sessionId); throw new InvalidGrantError("Refresh token reuse; reconnect"); }
+    const requested = scopes ?? token.scopes;
+    if (requested.some(scope => !token.scopes.includes(scope))) throw new InvalidGrantError("Refresh cannot increase access");
     token.used = true;
     try { await this.validateLogin(session.username, session.password, session.controller.signal); }
     catch { this.dropSession(token.sessionId); throw new InvalidGrantError("Sign in again"); }
     if (!this.sessions.has(token.sessionId)) throw new InvalidGrantError("Authorization ended");
-    return this.mint(token.sessionId);
+    return this.mint(token.sessionId, requested);
   }
   private accessSession(value: string) {
     this.sweep(); const token = this.access.get(hash(value)); const session = token && this.sessions.get(token.sessionId);
@@ -139,13 +152,13 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   }
   async verifyAccessToken(value: string) {
     const { token, session } = this.accessSession(value);
-    return { token: value, clientId: session.clientId, scopes: [READ_SCOPE], expiresAt: Math.floor(token.expires / 1000), resource: new URL(this.config.publicUrl) };
+    return { token: value, clientId: session.clientId, scopes: [...token.scopes], expiresAt: Math.floor(token.expires / 1000), resource: new URL(this.config.publicUrl) };
   }
   async authenticate(header: string | undefined): Promise<RemoteSubject> {
     try {
       if (!header || !/^Bearer [A-Za-z0-9_-]{43}$/i.test(header)) throw new Error();
-      const { session } = this.accessSession(header.slice(7));
-      return { subject: session.username.toLowerCase(), username: session.username, password: session.password, signal: session.controller.signal };
+      const { token, session } = this.accessSession(header.slice(7));
+      return { subject: session.username.toLowerCase(), username: session.username, password: session.password, signal: session.controller.signal, scopes: [...token.scopes] };
     } catch { throw new AuthenticationError(401); }
   }
   async revokeToken(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest) {
@@ -156,11 +169,12 @@ export class IvedaLoginProvider implements OAuthServerProvider {
 
 export function createIvedaLoginServer(config: IvedaLoginConfig) {
   const ctx = loadSwagger();
+  const createDispatcher = remoteDispatcher(config);
   const publicOrigin = new URL(config.publicUrl).origin;
   const provider = new IvedaLoginProvider(config, async (username, password, signal) => {
     const upstream: IvedaAIConfig = { origin: config.upstreamOrigin, basePath: ctx.basePath, tokenUrl: ctx.tokenUrl,
       username, password, timeoutMs: 8000, maxResponseBytes: 28672, inlineImages: false, maxImageBytes: 1,
-      redactSecrets: true, uploadPolicy: { maxBytes: 1, allowUnconfined: false } };
+      redactSecrets: true, uploadPolicy: { maxBytes: 1, allowUnconfined: false }, dispatcher: createDispatcher() };
     const manager = new TokenManager(upstream);
     const abort = () => { void manager.close(); };
     signal?.addEventListener("abort", abort, { once: true });
@@ -184,13 +198,13 @@ export function createIvedaLoginServer(config: IvedaLoginConfig) {
     const abort = () => lifetime.abort(); res.once("close", abort);
     try {
       if (req.headers.origin !== publicOrigin) throw new Error();
-      const redirect = await provider.completeLogin(req.body?.flow, req.body?.csrf, req.headers.cookie, req.body?.username, req.body?.password, req.body?.consent, lifetime.signal);
+      const redirect = await provider.completeLogin(req.body?.flow, req.body?.csrf, req.headers.cookie, req.body?.username, req.body?.password, req.body?.consent, lifetime.signal, req.body?.writeConsent);
       res.setHeader("Set-Cookie", "__Host-iveda-login=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0");
       res.redirect(303, redirect);
     } catch { if (!res.headersSent && !res.destroyed) res.status(400).send("Sign-in failed or expired. Check your IvedaAI credentials and account setup, then restart this connection from your AI app."); }
     finally { res.off("close", abort); }
   });
-  const authOptions = { provider, issuerUrl: new URL(publicOrigin + "/"), resourceServerUrl: new URL(config.publicUrl), scopesSupported: [READ_SCOPE] };
+  const authOptions = { provider, issuerUrl: new URL(publicOrigin + "/"), resourceServerUrl: new URL(config.publicUrl), scopesSupported: remoteScopes(config) };
   app.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({
     ...createOAuthMetadata(authOptions), token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"],
   }));

@@ -5,7 +5,8 @@ import { TokenManager, type IvedaAIConfig } from "./auth.js";
 import { createIvedaServer } from "./server.js";
 import { loadSwagger, type SwaggerContext } from "./swagger.js";
 import { stripDialectsFromToolList } from "./schemaDialect.js";
-import { AuthenticationError, createAuthenticator, READ_SCOPE, type RemoteConfig, type RemoteSubject } from "./remoteAuth.js";
+import { AuthenticationError, createAuthenticator, READ_SCOPE, WRITE_SCOPE, remoteScopes, remoteDispatcher, type RemoteConfig, type RemoteSubject } from "./remoteAuth.js";
+import { isCollectionDelete, isReadSafe } from "./accessPolicy.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -41,10 +42,19 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
   routes?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 } = {}) {
   const ctx = dependencies.context ?? loadSwagger();
+  // Fail closed on stale/unknown configuration rather than silently enabling a broader surface.
+  const writeOperations = [...(config.allowedWriteOperations ?? [])];
+  for (const id of writeOperations) {
+    const op = ctx.tags.flatMap(tag => tag.operations).find(operation => operation.id === id);
+    if (!op || op.method === "GET" || isReadSafe(op) || isCollectionDelete(op)) {
+      throw new Error("Configured remote write operation must be a known, targeted write");
+    }
+  }
   if (new URL(ctx.tokenUrl, config.upstreamOrigin).origin !== new URL(config.upstreamOrigin).origin) {
     throw new Error("OAuth token endpoint must belong to the configured upstream");
   }
   const authenticate = dependencies.authenticate ?? createAuthenticator(config, dependencies.keys);
+  const createDispatcher = remoteDispatcher(config);
   const publicUrl = new URL(config.publicUrl);
   const metadataUrl = `${publicUrl.origin}/.well-known/oauth-protected-resource`;
   const active = new Set<() => void>();
@@ -94,7 +104,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
       if (dependencies.routes && await dependencies.routes(req, res)) return;
       if (req.url === "/.well-known/oauth-protected-resource" && req.method === "GET") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ resource: config.publicUrl, authorization_servers: [config.issuer], scopes_supported: [READ_SCOPE], bearer_methods_supported: ["header"] }));
+        res.end(JSON.stringify({ resource: config.publicUrl, authorization_servers: [config.issuer], scopes_supported: remoteScopes(config), bearer_methods_supported: ["header"] }));
         return;
       }
       if (req.url !== "/mcp") throw new HttpError(404, "Not found");
@@ -117,16 +127,21 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
         username: subject.username, password: subject.password,
         timeoutMs: 25000, maxResponseBytes: 28672, maxImageBytes: 4194304, inlineImages: true,
         redactSecrets: true, uploadPolicy: { maxBytes: 1, allowUnconfined: false },
+        dispatcher: createDispatcher(),
       };
       manager = new TokenManager(upstream);
-      ({ server: protocol } = createIvedaServer(ctx, manager, { readOnly: true, allowCollectionDelete: false }));
+      const canWrite = writeOperations.length > 0 && subject.scopes?.includes(WRITE_SCOPE) === true;
+      ({ server: protocol } = createIvedaServer(ctx, manager, {
+        readOnly: !canWrite, allowCollectionDelete: false,
+        allowedWriteOperations: canWrite ? writeOperations : [],
+      }));
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       const send = transport.send.bind(transport);
       transport.send = async (message, options) => {
         stripDialectsFromToolList(message);
         if ("result" in message && message.result && Array.isArray(message.result.tools)) {
           for (const tool of message.result.tools) {
-            tool.securitySchemes = [{ type: "oauth2", scopes: [READ_SCOPE] }];
+            tool.securitySchemes = [{ type: "oauth2", scopes: tool.annotations?.readOnlyHint === false ? [READ_SCOPE, WRITE_SCOPE] : [READ_SCOPE] }];
             tool._meta = { ...tool._meta, securitySchemes: tool.securitySchemes };
           }
         }

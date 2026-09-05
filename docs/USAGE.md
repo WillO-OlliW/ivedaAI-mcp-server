@@ -18,7 +18,7 @@ the API for you:
 ## Connecting
 
 These instructions use the package's default stdio transport. For the separate authenticated,
-read-only HTTP entry point, see [REMOTE.md](REMOTE.md); it supports existing IvedaAI login and
+HTTP entry point, see [REMOTE.md](REMOTE.md); it supports existing IvedaAI login, optional consented actions and
 requires HTTPS proxy/client-callback setup. Browser deployment options are described in
 [browser connection requirements](BROWSER-READINESS.md).
 

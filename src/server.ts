@@ -101,7 +101,8 @@ export function createIvedaServer(
 
     const operationIds = operations.map((o) => o.id) as [string, ...string[]];
     const isReadOnly = operations.every((o) => o.method === "GET" || isReadSafe(o));
-    const hasDestructive = operations.some((o) => ["DELETE", "PUT", "PATCH"].includes(o.method));
+    const hasDestructive = operations.some((o) => ["DELETE", "PUT", "PATCH"].includes(o.method)) ||
+      (ACCESS_POLICY.allowedWriteOperations !== undefined && !isReadOnly);
     // `every`, for the same reason `hasDestructive` is `some`: these tools
     // dispatch to many operations behind one annotation, so a per-tool claim is
     // only true if it holds for every operation the tool will accept. One POST in
@@ -357,7 +358,7 @@ export function createIvedaServer(
   // other creates and activates a camera — so a read-only server must not offer
   // them. They are not generated from the spec, so the enum filter above does not
   // reach them.
-  if (ACCESS_POLICY.readOnly) {
+  if (ACCESS_POLICY.readOnly || ACCESS_POLICY.allowedWriteOperations !== undefined) {
     log("[ivedaai-mcp-server] read-only: not registering ivedaai_alert_integration or ivedaai_add_camera");
   } else if (!testAlertTriggerOp || !patchAlertRuleOp || !getAlertRuleOp) {
     log(
@@ -536,7 +537,7 @@ export function createIvedaServer(
   const listEngineProfilesOp = findOperation("GET /api/engineProfiles");
   const listAinvrsOp = findOperation("GET /api/ainvrs");
 
-  if (ACCESS_POLICY.readOnly) {
+  if (ACCESS_POLICY.readOnly || ACCESS_POLICY.allowedWriteOperations !== undefined) {
     // Already reported above; stay silent rather than log the same thing twice.
   } else if (!createCameraOp || !activateCameraOp || !listCamerasOp || !listEngineProfilesOp || !listAinvrsOp) {
     log("[ivedaai-mcp-server] expected operations for ivedaai_add_camera not found in spec — skipping that tool.");

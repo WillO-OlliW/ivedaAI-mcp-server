@@ -14,7 +14,7 @@ Customers will use their existing IvedaAI login; a separate sign-in vendor is no
 an explicit account/policy context. `src/http.ts` adds a loopback HTTP listener. The IvedaAI login
 adapter supplies a code/PKCE flow, consent, expiring connector tokens, refresh and revocation.
 Optional external JWT validation and subject/account mappings are also available. It uses a fixed
-customer origin and fresh request contexts, with read-only access and uploads disabled. No HTTPS
+customer origin and fresh request contexts, with read-only defaults, optional consented actions and uploads disabled. No production HTTPS
 proxy, tenant relay or production endpoint has been provisioned. `IVEDAAI_BASE_URL` addresses
 IvedaAI; it cannot be pasted into ChatGPT as this package's MCP endpoint.
 
@@ -84,7 +84,8 @@ role accepted for the pilot. Revoking a user must invalidate that user's connect
 ## Proposed hosted service
 
 The following are project design requirements. The preview implements explicit contexts, stateless
-HTTP and existing-IvedaAI login with code/PKCE, consent, refresh and revocation in read-only mode.
+HTTP and existing-IvedaAI login with code/PKCE, consent, refresh and revocation. Read-only access is
+the default; selected write operations require installation configuration and a consented write scope.
 Optional external JWT validation and fixed subject/account mappings remain available. Deployment
 and operational requirements still need acceptance checks on the customer's actual connection.
 

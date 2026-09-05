@@ -77,6 +77,17 @@ describe("remote authorization", () => {
   it("maps a verified subject to its configured account", async () => {
     expect((await createAuthenticator(config, keys)(`Bearer ${await token({ sub: "bob" })}`)).username).toBe("account-bob");
   });
+  it("requires both configured write operations and a verified write scope", async () => {
+    const enabled = { ...config, allowedWriteOperations: ["POST /api/cameras/{cameraId}/jobs"] };
+    expect((await createAuthenticator(enabled, keys)(`Bearer ${await token()}`)).scopes).toEqual(["ivedaai:read"]);
+    expect((await createAuthenticator(enabled, keys)(`Bearer ${await token({ scope: "ivedaai:read ivedaai:write" })}`)).scopes).toContain("ivedaai:write");
+    expect((await createAuthenticator(config, keys)(`Bearer ${await token({ scope: "ivedaai:read ivedaai:write" })}`)).scopes).not.toContain("ivedaai:write");
+  });
+  it("rejects unknown, read-only and collection-delete entries in the write allowlist", () => {
+    for (const id of ["POST /api/unknown", "GET /api/cameras", "POST /api/alerts/statistics", "DELETE /api/cameras"]) {
+      expect(() => createRemoteServer({ ...config, allowedWriteOperations: [id] }, { keys })).toThrow(/targeted write/);
+    }
+  });
   it.each([
     ["wrong issuer", { iss: "https://other.example" }, 401],
     ["wrong customer audience", { aud: "https://customer-b.example/mcp" }, 401],

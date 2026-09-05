@@ -5,7 +5,7 @@ import { createRemoteServer } from "./remoteServer.js";
 import { createIvedaLoginServer, ivedaLoginConfigSchema } from "./ivedaLogin.js";
 
 if (process.argv.includes("--help")) {
-  console.log("Usage: node dist/http.js /absolute/path/customer.json\nAuthenticated read-only MCP on 127.0.0.1; supports existing IvedaAI login behind an HTTPS reverse proxy. See docs/REMOTE.md.");
+  console.log("Usage: node dist/http.js /absolute/path/customer.json\nAuthenticated MCP on 127.0.0.1; read-only by default with optional consented actions. Supports existing IvedaAI login behind an HTTPS reverse proxy. See docs/REMOTE.md.");
 } else {
   try {
     if (process.argv.length !== 3) throw new Error("One configuration file required");
@@ -16,7 +16,7 @@ if (process.argv.includes("--help")) {
     const config = parsed.auth === "ivedaai" ? ivedaLoginConfigSchema.parse(parsed) : remoteConfigSchema.parse(parsed);
     const service = "auth" in config ? createIvedaLoginServer(config) : createRemoteServer(config);
     service.http.on("error", () => { console.error("[ivedaai-http] Listener failed"); process.exitCode = 1; });
-    service.http.listen(config.port, "127.0.0.1", () => console.error("[ivedaai-http] Read-only MCP listening on loopback"));
+    service.http.listen(config.port, "127.0.0.1", () => console.error("[ivedaai-http] Authenticated MCP listening on loopback"));
     let stopping = false;
     const stop = () => {
       if (stopping) return;
