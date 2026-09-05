@@ -4,7 +4,7 @@ import type { TokenManager } from "./auth.js";
 import type { SwaggerContext } from "./swagger.js";
 import { executeOperation } from "./request.js";
 
-export const SNAPSHOT_URI = "ui://ivedaai/snapshot-v1.html";
+export const SNAPSHOT_URI = "ui://ivedaai/snapshot-v2.html";
 export const SNAPSHOT_HTML = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font:14px system-ui,sans-serif;margin:0;padding:16px;color:light-dark(#18212b,#eef2f6);background:light-dark(#fff,#18212b);color-scheme:light dark}h2{font-size:18px;margin:0 0 8px}p{margin:8px 0}img{display:block;width:100%;height:auto;max-height:640px;object-fit:contain;border-radius:8px}img[hidden]{display:none}.muted{opacity:.7}</style>
 <h2 id="title">Camera snapshot</h2><p id="status" role="status">Waiting for the snapshot result…</p><img id="frame" hidden alt="Camera snapshot"><p class="muted" id="time"></p>
@@ -54,6 +54,7 @@ export function registerSnapshotView(server: McpServer, ctx: SwaggerContext, man
     title: "Show camera snapshot",
     description: "Fetch and display a current camera snapshot in an embedded viewer. Use when the user asks to see what a camera is seeing. First resolve a camera name to its ID with ivedaai_camera. Does not activate cameras. No-frame responses are reported explicitly; never invent an image or public image URL.",
     inputSchema: { cameraId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER) },
+    outputSchema: { cameraId: z.number().int().positive(), retrievedAt: z.string(), status: z.number().int().optional(), available: z.boolean(), message: z.string() },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _meta: { ui: { resourceUri: SNAPSHOT_URI }, "openai/outputTemplate": SNAPSHOT_URI },
   }, async ({ cameraId }, extra) => {
