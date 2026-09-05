@@ -214,7 +214,7 @@ export function createIvedaLoginServer(config: IvedaLoginConfig) {
   app.use((_error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { res.status(400).json({ error: "invalid_request" }); });
   const paths = new Set(["/authorize", "/token", "/revoke", "/login", "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource/mcp"]);
   const service = createRemoteServer({ ...config, issuer: publicOrigin + "/", jwksUrl: publicOrigin + "/unused", subjects: [] }, {
-    context: ctx, authenticate: header => provider.authenticate(header),
+    context: ctx, authenticate: header => provider.authenticate(header), reserveRevocation: true,
     routes: async (req, res) => {
       if (!paths.has((req.url ?? "").split("?")[0])) return false;
       await new Promise<void>((resolve, reject) => {

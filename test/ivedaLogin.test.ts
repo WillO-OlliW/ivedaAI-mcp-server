@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server, type ServerResponse } from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { createIvedaLoginServer, ivedaLoginConfigSchema, type IvedaLoginConfig } from "../src/ivedaLogin.js";
@@ -16,23 +16,30 @@ let base: string;
 let logins: string[];
 let disabled = false;
 let writes: { method: string; url: string; owner: string }[];
+let held: Map<string, Set<ServerResponse>>;
 async function listen(server: Server) {
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   return `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 }
 beforeEach(async () => {
-  logins = []; disabled = false; writes = [];
+  logins = []; disabled = false; writes = []; held = new Map();
   upstream = createServer(async (req, res) => {
     res.setHeader("content-type", "application/json");
     if (req.url?.endsWith("/oauth2/token")) {
       let body = ""; for await (const chunk of req) body += chunk;
       const fields = new URLSearchParams(body), username = fields.get("username")!;
       logins.push(username);
-      if (disabled || !["alice", "bob"].includes(username) || fields.get("password") !== "fixture-password") {
+      if (disabled || !["alice", "bob", "charlie", "dana", "erin"].includes(username) || fields.get("password") !== "fixture-password") {
         res.writeHead(400); res.end(JSON.stringify({ error: "private upstream diagnostic must not be exposed" }));
       } else res.end(JSON.stringify({ access_token: `upstream-${username}`, expires_in: 3600, token_type: "Bearer" }));
     } else {
       const owner = req.headers.authorization?.replace("Bearer upstream-", "") ?? "";
+      if (req.method === "GET" && req.url?.endsWith("/cameras/44")) {
+        const requests = held.get(owner) ?? new Set<ServerResponse>();
+        held.set(owner, requests); requests.add(res);
+        res.once("close", () => requests.delete(res));
+        return;
+      }
       if (req.method !== "GET") {
         if (owner === "bob") { res.writeHead(403); res.end(JSON.stringify({ error: "Account cannot change cameras" })); return; }
         writes.push({ method: req.method!, url: req.url!, owner });
@@ -82,6 +89,110 @@ async function discover(token: string) {
   return fetch(base + "/mcp", { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
 }
+
+function holdCamera(token: string) {
+  const controller = new AbortController();
+  const result = fetch(base + "/mcp", { method: "POST", signal: controller.signal,
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 44, method: "tools/call", params: { name: "ivedaai_camera",
+      arguments: { operation: "GET /api/cameras/{cameraId}", path: { cameraId: 44 } } } }),
+  }).then(async response => { await response.text(); return response.status; }).catch(() => 0);
+  return { controller, result };
+}
+
+describe("native login under concurrent load", () => {
+  it("shares the account limit across grants and releases capacity after cancellation", async () => {
+    const first = await linked(), second = await linked(), bob = await linked("bob");
+    const pending = Array.from({ length: 4 }, () => holdCamera(first.tokens.access_token));
+    try {
+      await vi.waitFor(() => expect(held.get("alice")?.size).toBe(4));
+      const before = logins.length;
+      expect((await discover(second.tokens.access_token)).status).toBe(429);
+      expect((await discover(bob.tokens.access_token)).status).toBe(200);
+      expect(logins).toHaveLength(before);
+    } finally {
+      pending.forEach(p => p.controller.abort()); await Promise.all(pending.map(p => p.result));
+    }
+    await vi.waitFor(() => expect(held.get("alice")?.size).toBe(0));
+    expect((await discover(second.tokens.access_token)).status).toBe(200);
+  });
+
+  it("revokes only the selected grant's active requests and preserves other users", async () => {
+    const alice = await linked(), otherAlice = await linked(), bob = await linked("bob");
+    const aliceRequest = holdCamera(alice.tokens.access_token), otherAliceRequest = holdCamera(otherAlice.tokens.access_token), bobRequest = holdCamera(bob.tokens.access_token);
+    try {
+      await vi.waitFor(() => { expect(held.get("alice")?.size).toBe(2); expect(held.get("bob")?.size).toBe(1); });
+      expect((await form("/revoke", { client_id: "approved-ai", token: alice.tokens.access_token })).status).toBe(200);
+      await vi.waitFor(() => expect(held.get("alice")?.size).toBe(1));
+      expect(await aliceRequest.result).not.toBe(200);
+      expect(held.get("bob")?.size).toBe(1);
+      expect((await discover(alice.tokens.access_token)).status).toBe(401);
+      expect((await discover(otherAlice.tokens.access_token)).status).toBe(200);
+      expect((await discover(bob.tokens.access_token)).status).toBe(200);
+    } finally {
+      aliceRequest.controller.abort(); otherAliceRequest.controller.abort(); bobRequest.controller.abort();
+      await Promise.all([aliceRequest.result, otherAliceRequest.result, bobRequest.result]);
+    }
+  });
+
+  it("keeps revocation available at the global request limit and recovers capacity", async () => {
+    const grants = await Promise.all(["alice", "bob", "charlie", "dana", "erin"].map(name => linked(name)));
+    const pending = grants.slice(0, 4).flatMap(grant => Array.from({ length: 4 }, () => holdCamera(grant.tokens.access_token)));
+    try {
+      await vi.waitFor(() => expect([...held.values()].reduce((n, requests) => n + requests.size, 0)).toBe(16));
+      const before = logins.length;
+      expect((await discover(grants[4].tokens.access_token)).status).toBe(503);
+      expect(logins).toHaveLength(before);
+      expect((await form("/revoke", { client_id: "approved-ai", token: grants[0].tokens.access_token }, { origin: "https://evil.example" })).status).toBe(403);
+      expect((await form("/revoke", { client_id: "approved-ai", token: grants[0].tokens.access_token })).status).toBe(200);
+      await vi.waitFor(() => expect(held.get("alice")?.size).toBe(0));
+      for (const name of ["bob", "charlie", "dana"]) expect(held.get(name)?.size).toBe(4);
+      expect((await discover(grants[0].tokens.access_token)).status).toBe(401);
+      expect((await discover(grants[4].tokens.access_token)).status).toBe(200);
+    } finally {
+      pending.forEach(p => p.controller.abort()); await Promise.all(pending.map(p => p.result));
+    }
+    await vi.waitFor(() => expect([...held.values()].reduce((n, requests) => n + requests.size, 0)).toBe(0));
+    expect((await discover(grants[4].tokens.access_token)).status).toBe(200);
+  });
+
+  it("bounds the reserved revocation capacity independently and releases abandoned requests", async () => {
+    const grant = await linked();
+    const pending = Array.from({ length: 2 }, () => {
+      const req = request(base + "/revoke", { method: "POST", headers: {
+        "content-type": "application/x-www-form-urlencoded", "content-length": 100,
+      } }, res => res.resume());
+      req.on("error", () => {}); req.write("c"); return req;
+    });
+    try {
+      await vi.waitFor(async () => expect((await form("/revoke", { client_id: "approved-ai", token: "invalid" })).status).toBe(503));
+      expect((await discover(grant.tokens.access_token)).status).toBe(200);
+    } finally { pending.forEach(req => req.destroy()); }
+    await vi.waitFor(async () => expect((await form("/revoke", { client_id: "approved-ai", token: grant.tokens.access_token })).status).toBe(200));
+    expect((await discover(grant.tokens.access_token)).status).toBe(401);
+  });
+
+  it("preserves account ownership and recovers all slots over repeated full-capacity bursts", async () => {
+    const names = ["alice", "bob", "charlie", "dana"];
+    const grants = await Promise.all(names.map(name => linked(name)));
+    const before = logins.length;
+    for (let round = 0; round < 4; round++) {
+      await Promise.all(grants.flatMap((grant, index) => Array.from({ length: 4 }, async () => {
+        const response = await fetch(base + "/mcp", { method: "POST", headers: {
+          authorization: `Bearer ${grant.tokens.access_token}`, "content-type": "application/json", accept: "application/json, text/event-stream",
+        }, body: JSON.stringify({ jsonrpc: "2.0", id: round, method: "tools/call", params: {
+          name: "ivedaai_camera", arguments: { operation: "GET /api/cameras/{cameraId}", path: { cameraId: 1 } },
+        } }) });
+        expect(response.status).toBe(200);
+        const result = (await response.json()).result;
+        expect(result.isError).not.toBe(true);
+        expect(result.structuredContent.body).toMatchObject({ cameraId: 1, owner: names[index] });
+      })));
+    }
+    expect(logins).toHaveLength(before + 64);
+    for (const name of names) expect(logins.filter(owner => owner === name)).toHaveLength(17);
+  });
+});
 
 describe("existing IvedaAI login", () => {
   const cameraWrite = "POST /api/cameras/{cameraId}/jobs";

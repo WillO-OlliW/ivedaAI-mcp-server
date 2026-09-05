@@ -241,8 +241,12 @@ changes. Do not set a custom `IVEDAAI_SWAGGER_PATH` for the HTTP entry point.
 - `POST /mcp` accepts JSON and returns JSON MCP responses. GET/DELETE at `/mcp` return 405 after
   authentication. No resumable SSE stream, legacy SSE endpoint or session identifier is offered.
   Supplied session identifiers are rejected; they never grant access.
-- Bodies are capped at 256 KiB; compressed bodies are rejected. At most 16 requests run concurrently,
+- Bodies are capped at 256 KiB; compressed bodies are rejected. At most 16 ordinary requests run concurrently,
   with at most four per mapped subject. The request deadline is 30 seconds, upstream timeout 25 seconds.
+- Native login reserves two additional slots for exact `POST /revoke` requests, so revocation
+  remains reachable when the 16 ordinary slots are occupied. Those slots have the same deadline,
+  Host/Origin checks and OAuth client/token validation; further revocation requests receive 503.
+  This is bounded headroom under ordinary MCP load, not a guarantee against denial of service.
 - Request closure and service shutdown abort that request's upstream work. Cross-request MCP
   cancellation notifications do not cancel another stateless request; no resumable operation state
   is retained. A timed-out or disconnected write may already have reached IvedaAI: inspect the
@@ -258,6 +262,14 @@ duplicate authorization headers, body limits and absence of session authority.
 Native-login tests additionally cover form binding/consent, failed passwords, PKCE, client/resource/
 callback binding, code replay/expiry, token rotation/reuse, revocation and login-attempt limits.
 Existing IvedaAI credentials also passed a controlled live login/read/refresh/revoke sequence.
+
+Local reliability tests fill all 16 ordinary slots, verify excess requests are rejected before
+upstream login, then revoke one grant and verify its upstream requests close while other grants
+remain usable. They also cover the separate revocation bound, abandoned-request cleanup and
+account limits shared across multiple grants. Four consecutive 16-call mock bursts preserve
+account ownership and recover capacity; the 64 tool calls cause 64 upstream logins, confirming
+the preview's per-request authentication cost. These are functional load checks, not production
+throughput or latency measurements.
 
 Before a customer pilot, configure the approved AI client and callback, verify the chosen account
 login flow and TLS through the actual proxy, and test linking and representative reads in the

@@ -41,6 +41,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
   context?: SwaggerContext;
   authenticate?: (authorization: string | undefined) => Promise<RemoteSubject>;
   routes?: (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
+  reserveRevocation?: boolean;
 } = {}) {
   const ctx = dependencies.context ?? loadSwagger();
   // Fail closed on stale/unknown configuration rather than silently enabling a broader surface.
@@ -59,6 +60,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
   const publicUrl = new URL(config.publicUrl);
   const metadataUrl = `${publicUrl.origin}/.well-known/oauth-protected-resource`;
   const active = new Set<() => void>();
+  const revocations = new Set<() => void>();
   const bySubject = new Map<string, number>();
   let stopping = false;
   const http = createServer((req, res) => {
@@ -67,7 +69,12 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", "connection": "close" });
       res.end(JSON.stringify({ error: message }));
     };
-    if (stopping || active.size >= 16) { reply(503, "Service busy"); return; }
+    // Native revocation must remain reachable when ordinary requests occupy every slot.
+    // Keep its own small bound; security checks and the normal deadline still apply.
+    const revocation = dependencies.reserveRevocation === true && req.method === "POST" && req.url === "/revoke";
+    if (stopping || (revocation ? revocations.size >= 2 : active.size - revocations.size >= 16)) {
+      reply(503, "Service busy"); return;
+    }
     let manager: TokenManager | undefined;
     let protocol: ReturnType<typeof createIvedaServer>["server"] | undefined;
     let subjectId: string | undefined;
@@ -75,7 +82,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
     let ended = false;
     const finish = () => {
       if (ended) return;
-      ended = true; clearTimeout(timer); active.delete(stop);
+      ended = true; clearTimeout(timer); active.delete(stop); revocations.delete(stop);
       identitySignal?.removeEventListener("abort", revoked);
       if (subjectId) {
         const count = (bySubject.get(subjectId) ?? 1) - 1;
@@ -88,6 +95,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
     const revoked = () => { reply(401, "Authorization ended"); finish(); res.destroy(); };
     const timer = setTimeout(() => { reply(504, "Request deadline exceeded"); finish(); req.destroy(); }, 30000);
     timer.unref(); active.add(stop);
+    if (revocation) revocations.add(stop);
     res.once("close", finish);
     res.once("finish", finish);
     res.setHeader("Cache-Control", "no-store");
