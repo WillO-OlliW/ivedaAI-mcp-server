@@ -5,6 +5,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createRemoteServer } from "../src/remoteServer.js";
 import { createAuthenticator, remoteConfigSchema, type RemoteConfig } from "../src/remoteAuth.js";
+import { SNAPSHOT_URI } from "../src/snapshotView.js";
+
+const fixturePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII=";
 
 let key: Awaited<ReturnType<typeof generateKeyPair>>;
 let keys: ReturnType<typeof createLocalJWKSet>;
@@ -38,6 +41,11 @@ function upstream(customer: string) {
     } else {
       const username = req.headers.authorization?.replace("Bearer token-", "");
       seen.push({ customer, username, path });
+      if (path.includes("/streaming/")) {
+        if (username === "account-bob") { res.writeHead(403); res.end('{"error":"No camera grant"}'); return; }
+        if (path.includes("/43/")) { res.writeHead(204); res.end(); return; }
+        res.setHeader("content-type", "image/png"); res.end(Buffer.from(fixturePng, "base64")); return;
+      }
       if (path.endsWith("/cameras/44")) {
         res.once("close", () => onHeldClosed?.()); onHeld?.(); return;
       }
@@ -163,7 +171,7 @@ describe("HTTP MCP boundary", () => {
   it("supports actual SDK discovery with only read tools, OAuth metadata and no session ID", async () => {
     await withClient(endpointA, await token(), async client => {
       const list = await client.listTools();
-      expect(list.tools).toHaveLength(55);
+      expect(list.tools).toHaveLength(56);
       expect(list.tools.some(t => t.name === "ivedaai_add_camera")).toBe(false);
       expect(list.tools[0]._meta?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["ivedaai:read"] }]);
     });
@@ -180,6 +188,42 @@ describe("HTTP MCP boundary", () => {
       expect(result.isError).not.toBe(true);
       expect(result.structuredContent).toMatchObject({ body: { cameraId: 1, customer, owner: `account-${subject}` } });
     })));
+  });
+  it("delivers snapshot pixels to the image block and viewer without a public URL", async () => {
+    await withClient(endpointA, await token(), async client => {
+      const tool = (await client.listTools()).tools.find(t => t.name === "ivedaai_camera_snapshot")!;
+      expect(tool._meta?.ui).toEqual({ resourceUri: SNAPSHOT_URI });
+      expect(tool._meta?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["ivedaai:read"] }]);
+      const result = await client.callTool({ name: tool.name, arguments: { cameraId: 1 } });
+      expect(result.isError).toBe(false);
+      expect(result.structuredContent).toMatchObject({ cameraId: 1, available: true, status: 200 });
+      expect(result.content).toContainEqual({ type: "image", data: fixturePng, mimeType: "image/png" });
+      expect(result._meta).toEqual({ snapshotImage: { base64: fixturePng, mimeType: "image/png" } });
+      expect(JSON.stringify(result.structuredContent)).not.toMatch(/base64|https?:/);
+      const resource = await client.readResource({ uri: SNAPSHOT_URI });
+      expect(resource.contents[0].mimeType).toBe("text/html;profile=mcp-app");
+      expect(JSON.stringify(resource)).not.toContain(fixturePng);
+      expect(JSON.stringify(resource)).not.toContain("fixture-alice");
+    });
+  });
+  it("reports no-frame responses without claiming an image is attached", async () => {
+    await withClient(endpointA, await token(), async client => {
+      const result = await client.callTool({ name: "ivedaai_camera_snapshot", arguments: { cameraId: 43 } });
+      expect(result.structuredContent).toMatchObject({ status: 204, available: false });
+      expect(result._meta).toBeUndefined();
+      expect(result.content).toHaveLength(1);
+    });
+  });
+  it("preserves account permissions and validates snapshot IDs before upstream access", async () => {
+    await withClient(endpointA, await token({ sub: "bob" }), async client => {
+      const denied = await client.callTool({ name: "ivedaai_camera_snapshot", arguments: { cameraId: 1 } });
+      expect(denied.isError).toBe(true);
+      expect(denied.structuredContent).toMatchObject({ status: 403, available: false });
+      expect(denied._meta).toBeUndefined();
+      const before = seen.length;
+      const invalid = await client.callTool({ name: "ivedaai_camera_snapshot", arguments: { cameraId: "../1" } });
+      expect(invalid.isError).toBe(true); expect(seen).toHaveLength(before);
+    });
   });
   it("retains application camera grants and denies writes", async () => {
     await withClient(endpointA, await token({ sub: "bob" }), async client => {

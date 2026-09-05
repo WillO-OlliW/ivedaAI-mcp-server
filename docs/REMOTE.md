@@ -1,5 +1,26 @@
 # Authenticated HTTP preview
 
+## Camera snapshot viewer
+
+Remote clients also receive `ivedaai_camera_snapshot`, a read-only tool that takes a positive
+`cameraId`, fetches one current JPG frame and returns an MCP Apps viewer. Use this tool when a
+user asks to see a camera. Resolve names through `ivedaai_camera` first. Refresh the client's tool
+definitions or reconnect after upgrading so it discovers this tool and its UI resource.
+
+The image remains an MCP image block for compatible clients and is supplied to the viewer through
+private result metadata. It is not published at a public URL or stored by the connector. The viewer
+makes no external network requests. Normal OAuth and upstream account permissions apply, and the
+tool never activates a camera. HTTP 204 means no frame was returned, even if the camera reports
+Processing; the viewer reports that instead of claiming an image exists. Oversized, incomplete and
+unsupported image responses are not displayed. Retrieval time is not a camera capture timestamp.
+
+The viewer uses the [MCP Apps UI pattern](https://developers.openai.com/plugins/build/chatgpt-ui).
+Clients without UI support still receive the standard MCP result. Native image-block support does
+not guarantee that a client will display an image inline. Automated HTTP and browser fixture tests
+cover delivery; acceptance of this viewer in the pilot ChatGPT workspace remains pending.
+
+## Transport and authentication
+
 The repository includes a Streamable HTTP entry point, `dist/http.js`, with optional controlled writes alongside
 the unchanged stdio command. It is tested against local mock services and signed test tokens.
 Existing IvedaAI login, token exchange, a camera read, refresh and revocation also passed through

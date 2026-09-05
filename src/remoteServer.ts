@@ -7,6 +7,7 @@ import { loadSwagger, type SwaggerContext } from "./swagger.js";
 import { stripDialectsFromToolList } from "./schemaDialect.js";
 import { AuthenticationError, createAuthenticator, READ_SCOPE, WRITE_SCOPE, remoteScopes, remoteDispatcher, type RemoteConfig, type RemoteSubject } from "./remoteAuth.js";
 import { isCollectionDelete, isReadSafe } from "./accessPolicy.js";
+import { registerSnapshotView } from "./snapshotView.js";
 
 class HttpError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -135,6 +136,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
         readOnly: !canWrite, allowCollectionDelete: false,
         allowedWriteOperations: canWrite ? writeOperations : [],
       }));
+      registerSnapshotView(protocol, ctx, manager);
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
       const send = transport.send.bind(transport);
       transport.send = async (message, options) => {
