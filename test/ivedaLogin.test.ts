@@ -236,6 +236,30 @@ describe("existing IvedaAI login", () => {
     expect((await exchange(flow, code)).status).toBe(400);
     expect((await discover(grant.tokens.access_token)).status).toBe(401);
   });
+  it("rejects an expired form before upstream login and accepts a fresh connection", async () => {
+    const expired = await start();
+    const now = Date.now(); vi.spyOn(Date, "now").mockReturnValue(now + 301000);
+    const rejected = await login(expired);
+    expect(rejected.status).toBe(400);
+    expect(await rejected.text()).toContain("restart this connection from your AI app");
+    expect(logins).toHaveLength(0);
+    const fresh = await linked();
+    expect((await discover(fresh.tokens.access_token)).status).toBe(200);
+  });
+  it("recovers an expired access token by refresh without extending the grant lifetime", async () => {
+    const grant = await linked();
+    const now = Date.now(); const clock = vi.spyOn(Date, "now").mockReturnValue(now + 301000);
+    expect((await discover(grant.tokens.access_token)).status).toBe(401);
+    const refreshed = await form("/token", { client_id: "approved-ai", grant_type: "refresh_token", refresh_token: grant.tokens.refresh_token, resource: config.publicUrl });
+    expect(refreshed.status).toBe(200);
+    const next = await refreshed.json();
+    expect((await discover(next.access_token)).status).toBe(200);
+    clock.mockReturnValue(now + 3601000);
+    expect((await discover(next.access_token)).status).toBe(401);
+    expect((await form("/token", { client_id: "approved-ai", grant_type: "refresh_token", refresh_token: next.refresh_token, resource: config.publicUrl })).status).toBe(400);
+    const fresh = await linked();
+    expect((await discover(fresh.tokens.access_token)).status).toBe(200);
+  });
   it("limits repeated password attempts", async () => {
     for (let i = 0; i < 5; i++) expect((await login(await start(), { password: "wrong" })).status).toBe(400);
     expect((await login(await start(), { password: "wrong" })).status).toBe(429);

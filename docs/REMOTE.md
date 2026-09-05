@@ -6,6 +6,8 @@ Remote clients also receive `ivedaai_camera_snapshot`, a read-only tool that tak
 `cameraId`, fetches one current JPG frame and returns an MCP Apps viewer. Use this tool when a
 user asks to see a camera. Resolve names through `ivedaai_camera` first. Refresh the client's tool
 definitions or reconnect after upgrading so it discovers this tool and its UI resource.
+Start a new conversation after refreshing: an existing ChatGPT conversation may retain the old
+operation schemas even when plugin settings display the updated tools.
 
 The image remains an MCP image block for compatible clients and is supplied to the viewer through
 private result metadata. It is not published at a public URL or stored by the connector. The viewer
@@ -17,15 +19,18 @@ unsupported image responses are not displayed. Retrieval time is not a camera ca
 The viewer uses the [MCP Apps UI pattern](https://developers.openai.com/plugins/build/chatgpt-ui).
 Clients without UI support still receive the standard MCP result. Native image-block support does
 not guarantee that a client will display an image inline. Automated HTTP and browser fixture tests
-cover delivery; acceptance of this viewer in the pilot ChatGPT workspace remains pending.
+cover delivery. An actual camera image rendered in the authorized ChatGPT Work pilot on
+2026-09-05, including a fresh result with the client's CSP enforcement enabled. Other clients
+and the eventual production deployment still require their own acceptance checks.
 
 ## Transport and authentication
 
 The repository includes a Streamable HTTP entry point, `dist/http.js`, with optional controlled writes alongside
 the unchanged stdio command. It is tested against local mock services and signed test tokens.
 Existing IvedaAI login, token exchange, a camera read, refresh and revocation also passed through
-a temporary loopback connector against the authorized test deployment. It has **not** been deployed
-or tested from a customer's ChatGPT workspace or through production TLS. Private-network relay
+a temporary loopback connector against the authorized test deployment. The temporary HTTPS
+ChatGPT pilot also passed login, camera reads and snapshot display; the user reported successful
+camera start/stop with the final state restored. Production hosting and TLS remain unvalidated. Private-network relay
 support for other AI vendors is not implemented.
 
 ## One installation, explicit user accounts
@@ -44,7 +49,8 @@ logins for simple isolation in the preview; measure authentication load before p
 Remote access defaults to read-only. Collection deletion and local-file uploads remain disabled,
 and secret redaction is enabled. Selected writes require configuration and a verified write scope;
 stdio's environment switches cannot grant remote writes or uploads.
-The bundled read-only surface is 55 tools / 132 operations; review its full read
+The bundled read-only surface is 55 grouped tools / 132 operations plus the dedicated snapshot
+tool (56 tools total); review its full read
 surface against the intended users' application grants.
 
 ## Use existing IvedaAI login
@@ -124,6 +130,17 @@ Client annotations are advisory; server-side scope and operation checks enforce 
 For external JWT mode, the issuer must grant the write scope only after its own authorization and
 consent checks. A signed write scope alone cannot enable operations absent from the installation
 allowlist. Restart to apply configuration changes; native grants end on restart.
+
+Controlled live HTTP checks also passed camera name/description edits and disabled alert-rule
+name/cooldown edits, read-back, restoration, and read-only grant denials. These used disposable
+records that were removed afterward. See [HOSTING.md](HOSTING.md) for the corresponding optional
+operation list and deployment templates. This evidence does not establish every write workflow
+or every IvedaAI account role.
+
+An actual ChatGPT Work test subsequently renamed/restored a disposable camera and edited/restored
+a disabled rule's name/cooldown, verifying its association, condition, schedule and triggers.
+The browser also recovered from a pilot restart through its Reconnect action and existing IvedaAI
+sign-in. Full-grant expiry and expired-form recovery are covered by automated login tests.
 
 ## Optional external identity provider
 

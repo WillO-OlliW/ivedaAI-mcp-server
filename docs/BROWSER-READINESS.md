@@ -1,7 +1,13 @@
 # Browser connection readiness
 
-Status reviewed 2026-09-04 (America/Phoenix): an **authenticated HTTP preview is implemented and
-locally tested, but not deployed or verified with a customer browser client**. See [REMOTE.md](REMOTE.md).
+Status reviewed 2026-09-05 (America/Phoenix): the **authenticated HTTP preview passed login,
+camera reads and actual snapshot rendering in an authorized ChatGPT Work pilot**, including CSP
+enforcement. Camera start/stop with restoration was reported by the user. Controlled live HTTP
+camera and disabled alert-rule edits also passed with read-only denials and fixture cleanup.
+The same reversible camera-name and disabled alert-rule name/cooldown edits subsequently passed
+in a fresh ChatGPT Work conversation, with restoration verified. Reconnection after a pilot
+restart also passed. Production hosting, other write workflows and other AI clients still need
+acceptance. See [REMOTE.md](REMOTE.md).
 Intended customers use ChatGPT or another AI app in a browser.
 Each customer has their own IvedaAI server; there is no shared upstream installation.
 Network access varies by customer: some installations are internet-accessible and others require
@@ -28,7 +34,7 @@ See [OpenAI connection and testing documentation](https://developers.openai.com/
 | Route | Proposed use here | Remaining work |
 | --- | --- | --- |
 | Private ChatGPT tunnel | An isolated pilot can reuse the current stdio executable. | Provision a tunnel and supervised runtime, restrict workspace access, use a dedicated restricted application account, and test actual ChatGPT calls. |
-| HTTPS MCP service | Customer launch across compatible AI clients. | HTTP and existing-IvedaAI login preview exists. Configure proxy/client callbacks, verify production revocation/load, and validate each target client. |
+| HTTPS MCP service | Customer launch across compatible AI clients. | Temporary ChatGPT pilot passed. Deployment templates are prepared; provision stable hosting, verify production revocation/load, and validate each target client. |
 
 A tunnel requires a tunnel ID, runtime key and a machine that can reach the MCP process. It uses
 outbound HTTPS, and the target workspace must be associated with it. It is an OpenAI connection
@@ -56,7 +62,7 @@ an internet-accessible IvedaAI web interface does not itself provide a remote MC
 
 | Customer network | Connection design | Status |
 | --- | --- | --- |
-| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | HTTP and existing-IvedaAI login tested locally, including live login/read/refresh/revoke; proxy and browser validation remain. |
+| Inbound HTTPS to MCP is permitted | Authenticated Streamable HTTP endpoint on a customer-approved host; its upstream origin is fixed to that customer's IvedaAI server. | Temporary HTTPS ChatGPT pilot passed login, reads and snapshot display. Stable deployment acceptance remains. |
 | Private network/VPN, ChatGPT pilot | Customer-local stdio process reached through its dedicated outbound OpenAI tunnel. | Existing MCP code can be reused; tunnel provisioning and browser checks remain. |
 | Private network/VPN, other browser clients | Customer-approved remote access or an authenticated outbound relay connecting to a compatible HTTPS MCP endpoint. | Relay/access product and client support are not selected or validated. Do not advertise this path as ready. |
 
@@ -126,8 +132,10 @@ See [OpenAI authentication documentation](https://developers.openai.com/plugins/
 - Confirmed: use existing IvedaAI login; configure approved AI clients and their exact callbacks.
 - Whether the first release is a private pilot or a publicly distributed integration.
 
-These decisions determine routing and account isolation. No host, domain, identity provider,
-tunnel, customer credential store or production endpoint has been created by this audit.
+These decisions determine routing and account isolation. The temporary pilot uses an expiring
+HTTPS tunnel; no permanent host, domain or production endpoint has been provisioned. The pilot
+operator currently has no hosting/domain account. [HOSTING.md](HOSTING.md) supplies a concrete
+Linux service, proxy and configuration runbook for a future operator-owned deployment.
 
 ## Acceptance checks before browser launch
 
@@ -143,4 +151,5 @@ tunnel, customer credential store or production endpoint has been created by thi
 
 The automated remote tests provide local evidence for authorization, isolation and request limits.
 The live loopback test also validates IvedaAI login, an allowed read, refresh and revocation. These
-checks do not establish production TLS, deployment behavior or actual browser-client compatibility.
+checks do not establish production TLS or deployment behavior. Actual ChatGPT Work browser
+evidence is limited to the pilot behaviors listed above; test other clients separately.

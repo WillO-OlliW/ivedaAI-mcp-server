@@ -1,0 +1,30 @@
+[Unit]
+Description=IvedaAI authenticated MCP connector
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=ivedaai-mcp
+Group=ivedaai-mcp
+WorkingDirectory=/opt/ivedaai-mcp
+ExecStart=/usr/bin/node /opt/ivedaai-mcp/dist/http.js /etc/ivedaai-mcp/customer.json
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=35
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
