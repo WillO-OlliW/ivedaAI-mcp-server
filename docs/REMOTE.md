@@ -75,21 +75,22 @@ Create a protected installation configuration outside the repository:
 }
 ```
 
-This configuration contains no IvedaAI passwords. Login passwords are retained in the connector's
-process memory for at most one hour to make upstream calls and revalidate refreshes. They are not
-written to a credential database or configuration file. Run under a protected service identity;
-process dumps or access to its memory can expose credentials. Dropping references is not a claim
-of secure memory erasure.
+This configuration contains no IvedaAI passwords. By default, credentials remain in memory
+for a one-hour grant. Optional [encrypted persistent grants](PERSISTENT-GRANTS.md) retain
+credentials on the connector for a configured fixed lifetime of up to seven days and restore
+connections after restart. Protect the service identity, memory, encryption key and backups.
+Encryption at rest does not protect against an administrator or compromised running host.
 
 Login attempts are protected by an expiring, single-use form transaction, secure HttpOnly cookie,
 same-origin check, CSRF token, explicit consent and attempt limits. Authorization codes last one
 minute and require the matching PKCE verifier, client, callback and resource. Access tokens last
 up to five minutes. Refresh tokens rotate; reusing an old refresh token revokes that grant.
 `/revoke` invalidates the entire grant and aborts its active MCP requests. The maximum grant
-lifetime is one hour, after which the user signs in again. Restart invalidates all grants.
+lifetime is one hour by default, or the configured persistent lifetime (maximum seven days).
+Expiry requires signing in again. Only configured persistent grants survive restart.
 
-The preview keeps bounded grants and token hashes in memory. It does not provide durable login
-state, high-availability replication or dynamic client registration. It cannot perform an IvedaAI
+The connector keeps bounded grants and token hashes, optionally encrypted on disk. It does not
+provide high-availability replication or dynamic client registration. It cannot perform an IvedaAI
 MFA challenge or federated SSO flow; accounts requiring unsupported authentication remain blocked.
 Do not disable their protections to make the connector work. Application account setup and required
 first-login password changes must be completed in IvedaAI. Upstream password/account changes are
@@ -126,7 +127,7 @@ Client annotations are advisory; server-side scope and operation checks enforce 
 
 For external JWT mode, the issuer must grant the write scope only after its own authorization and
 consent checks. A signed write scope alone cannot enable operations absent from the installation
-allowlist. Restart to apply configuration changes; native grants end on restart.
+allowlist. Restart to apply configuration changes; memory-only grants end on restart; policy changes also invalidate saved grants.
 
 Controlled live HTTP checks also passed camera name/description edits and disabled alert-rule
 name/cooldown edits, read-back, restoration, and read-only grant denials. These used disposable

@@ -1,3 +1,5 @@
+import { GrantStore } from "./grantStore.js";
+import { isAbsolute } from "node:path";
 import { ChatGPTClientResolver } from "./chatgptClient.js";
 import { renderLoginPage } from "./loginPage.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
@@ -24,6 +26,11 @@ export const ivedaLoginConfigSchema = z.object({
     upstreamOrigin: httpsUrl.refine(value => new URL(value).pathname === "/"),
     upstreamTls: upstreamTlsSchema,
   }).strict()).max(50).optional(),
+  persistentGrants: z.object({
+    file: z.string().refine(isAbsolute),
+    keyFile: z.string().refine(isAbsolute),
+    lifetimeHours: z.number().int().min(1).max(168).default(168),
+  }).strict().optional(),
   clients: z.array(z.object({
     clientId: z.string().min(1).max(200),
     name: z.string().min(1).max(100),
@@ -40,7 +47,7 @@ const random = () => randomBytes(32).toString("base64url");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const equal = (a: unknown, b: string) => typeof a === "string" && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
-/** IvedaAI login adapter using the SDK OAuth code/PKCE routes. All grants are process-local. */
+/** IvedaAI login adapter using the SDK OAuth code/PKCE routes. Grants are memory-only unless encrypted persistence is configured. */
 export class IvedaLoginProvider implements OAuthServerProvider {
   readonly flows = new Map<string, Flow>();
   private readonly sessions = new Map<string, Session>();
@@ -50,6 +57,22 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   private readonly clients = new Map<string, OAuthClientInformationFull>();
   private readonly sweepTimer: NodeJS.Timeout;
   private closed = false;
+  private readonly store?: GrantStore;
+  private readonly policyHash: string;
+  private persist() {
+    if (!this.store || this.closed) return;
+    try {
+      const granted = new Set([...this.refresh.values()].map(t => t.sessionId));
+      this.store.save({ policy: this.policyHash,
+        sessions: [...this.sessions].filter(([id]) => granted.has(id)).map(([id, { controller: _controller, ...session }]) => [id, session]),
+        access: [...this.access], refresh: [...this.refresh] });
+    } catch (error) {
+      this.closed = true;
+      for (const session of this.sessions.values()) session.controller.abort();
+      this.sessions.clear(); this.access.clear(); this.refresh.clear();
+      throw error;
+    }
+  }
   private readonly chatgptClients = new ChatGPTClientResolver();
   readonly clientsStore = { getClient: (id: string) => this.clients.get(id) ?? this.chatgptClients.getClient(id) };
   constructor(readonly config: IvedaLoginConfig, readonly validateLogin: (username: string, password: string, signal?: AbortSignal, target?: Target) => Promise<void>) {
@@ -57,6 +80,21 @@ export class IvedaLoginProvider implements OAuthServerProvider {
       client_id: client.clientId, client_name: client.name, redirect_uris: client.redirectUris,
       token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: remoteScopes(config).join(" "),
     });
+    this.policyHash = hash(JSON.stringify({ publicUrl: config.publicUrl, upstreamOrigin: config.upstreamOrigin,
+      upstreamTls: config.upstreamTls, servers: config.upstreamServers, clients: config.clients,
+      writes: config.allowedWriteOperations, lifetime: config.persistentGrants?.lifetimeHours }));
+    if (config.persistentGrants) {
+      this.store = new GrantStore(config.persistentGrants.file, config.persistentGrants.keyFile, config.publicUrl);
+      try {
+        const saved = this.store.load() as { policy: string; sessions: [string, Omit<Session, "controller">][]; access: [string, Token][]; refresh: [string, Token][] } | undefined;
+        if (saved?.policy === this.policyHash) {
+          if (saved.sessions.length > 200 || saved.refresh.length > 50000 || saved.access.length > 4000) throw new Error("Invalid grant snapshot limits");
+          for (const [id, session] of saved.sessions) if (session.expires > Date.now()) this.sessions.set(id, { ...session, controller: new AbortController() });
+          for (const [id, token] of saved.access) if (this.sessions.has(token.sessionId) && token.expires > Date.now()) this.access.set(id, token);
+          for (const [id, token] of saved.refresh) if (this.sessions.has(token.sessionId) && token.expires > Date.now()) this.refresh.set(id, token);
+        }
+      } catch (error) { this.store.close(); throw new Error("Cannot load encrypted grants; check key and store integrity", { cause: error }); }
+    }
     this.sweepTimer = setInterval(() => this.sweep(), 30000); this.sweepTimer.unref();
   }
   private sweep() {
@@ -69,11 +107,14 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   private dropSession(id: string) {
     this.sessions.get(id)?.controller.abort(); this.sessions.delete(id);
     for (const map of [this.access, this.refresh, this.codes]) for (const [key, entry] of map) if (entry.sessionId === id) map.delete(key);
+    this.persist();
   }
   close() {
-    this.closed = true; clearInterval(this.sweepTimer);
-    for (const id of this.sessions.keys()) this.dropSession(id);
-    this.flows.clear();
+    try { this.persist(); } finally {
+      this.closed = true; clearInterval(this.sweepTimer);
+      for (const id of this.sessions.keys()) this.dropSession(id);
+      this.flows.clear(); this.store?.close();
+    }
   }
   private resource(resource?: URL) {
     if (resource?.href !== this.config.publicUrl) throw new InvalidRequestError("Resource must match this MCP endpoint");
@@ -99,7 +140,7 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     // no-referrer makes native browser form POSTs send Origin: null, defeating the login origin check.
     res.setHeader("Referrer-Policy", "strict-origin");
     const writes = params.scopes!.includes(WRITE_SCOPE);
-    res.type("html").send(renderLoginPage({ host: new URL(this.config.upstreamOrigin).host, client: client.client_name ?? client.client_id, flow: id, csrf, nonce: styleNonce, writes, servers: [{ name: "Default server", origin: this.config.upstreamOrigin }, ...(this.config.upstreamServers ?? []).map(s => ({ name: s.name, origin: s.upstreamOrigin }))] }));
+    res.type("html").send(renderLoginPage({ host: new URL(this.config.upstreamOrigin).host, client: client.client_name ?? client.client_id, flow: id, csrf, nonce: styleNonce, writes, grantHours: this.config.persistentGrants?.lifetimeHours, servers: [{ name: "Default server", origin: this.config.upstreamOrigin }, ...(this.config.upstreamServers ?? []).map(s => ({ name: s.name, origin: s.upstreamOrigin }))] }));
   }
   async completeLogin(flowId: unknown, csrf: unknown, cookie: string | undefined, username: unknown, password: unknown, consent: unknown, signal?: AbortSignal, writeConsent?: unknown, serverOrigin?: unknown) {
     this.sweep();
@@ -119,7 +160,7 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     await this.validateLogin(username, password, signal, selected);
     if (this.closed || signal?.aborted || this.sessions.size >= 200) throw new InvalidGrantError("Restart the connection and try again");
     const sessionId = random(), code = random();
-    this.sessions.set(sessionId, { target: selected, username, password, clientId: flow.clientId, expires: Date.now() + 3600000, controller: new AbortController(), scopes: [...flow.params.scopes!] });
+    this.sessions.set(sessionId, { target: selected, username, password, clientId: flow.clientId, expires: Date.now() + (this.config.persistentGrants?.lifetimeHours ?? 1) * 3600000, controller: new AbortController(), scopes: [...flow.params.scopes!] });
     this.codes.set(hash(code), { sessionId, params: flow.params, expires: Date.now() + 60000 });
     const redirect = new URL(flow.params.redirectUri);
     redirect.searchParams.set("code", code);
@@ -137,11 +178,12 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   private mint(sessionId: string, requestedScopes?: string[]): OAuthTokens {
     const session = this.sessions.get(sessionId)!;
     const scopes = [...(requestedScopes ?? session.scopes)];
-    if (this.refresh.size >= 4000) throw new InvalidGrantError("Reconnect to continue");
+    if (this.refresh.size >= 50000 || this.access.size >= 4000) throw new InvalidGrantError("Reconnect to continue");
     const access = random(), refresh = random();
     const expires = Math.min(Date.now() + 300000, session.expires);
     this.access.set(hash(access), { sessionId, expires, scopes });
     this.refresh.set(hash(refresh), { sessionId, expires: session.expires, scopes });
+    this.persist();
     return { access_token: access, refresh_token: refresh, token_type: "Bearer", expires_in: Math.max(1, Math.floor((expires - Date.now()) / 1000)), scope: scopes.join(" ") };
   }
   async exchangeAuthorizationCode(client: OAuthClientInformationFull, codeValue: string, _verifier?: string, redirectUri?: string, resource?: URL) {
@@ -156,7 +198,7 @@ export class IvedaLoginProvider implements OAuthServerProvider {
     if (token.used) { this.dropSession(token.sessionId); throw new InvalidGrantError("Refresh token reuse; reconnect"); }
     const requested = scopes ?? token.scopes;
     if (requested.some(scope => !token.scopes.includes(scope))) throw new InvalidGrantError("Refresh cannot increase access");
-    token.used = true;
+    token.used = true; this.persist();
     try { await this.validateLogin(session.username, session.password, session.controller.signal, session.target); }
     catch { this.dropSession(token.sessionId); throw new InvalidGrantError("Sign in again"); }
     if (!this.sessions.has(token.sessionId)) throw new InvalidGrantError("Authorization ended");
@@ -164,7 +206,7 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   }
   private accessSession(value: string) {
     this.sweep(); const token = this.access.get(hash(value)); const session = token && this.sessions.get(token.sessionId);
-    if (!token || !session) throw new InvalidTokenError("Invalid access token");
+    if (this.closed || !token || !session) throw new InvalidTokenError("Invalid access token");
     return { token, session };
   }
   async verifyAccessToken(value: string) {
@@ -243,5 +285,6 @@ export function createIvedaLoginServer(config: IvedaLoginConfig) {
       return true;
     },
   });
-  return { ...service, provider, close: async () => { provider.close(); await service.close(); } };
+  return { ...service, provider, close: async () => { try { provider.close(); } finally { await service.close(); } } };
 }
+

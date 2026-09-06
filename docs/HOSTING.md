@@ -82,8 +82,8 @@ sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sudo systemctl reload caddy
 ```
 
-Use one connector process. Do not load-balance multiple replicas: native grants live in memory
-and are not shared. Keep access-log request bodies, authorization headers, cookies and OAuth query
+Use one connector process. Do not load-balance multiple replicas: grant state is not shared between processes. Optional
+[encrypted persistence](PERSISTENT-GRANTS.md) supports restart recovery for one process. Keep access-log request bodies, authorization headers, cookies and OAuth query
 strings out of logs. Do not enable Caddy debug logging for credential-bearing traffic.
 
 ## Verify the public connection
@@ -113,10 +113,12 @@ not successful upstream login. Test the browser flow next:
 5. Confirm a read-only grant rejects those same writes. Test revoke, token refresh, full grant
    expiry and reconnect after a service restart, then measure expected concurrent upstream load.
 
-Access tokens last up to five minutes; rotating refresh works within a grant of at most one hour.
-After that, the user signs in again. Restarting or rolling back the process invalidates all native
-grants. A stable hostname does not provide durable sign-in sessions. To roll back, stop the service,
-restore the previous reviewed build/configuration, start it and repeat metadata/login/read checks.
+Access tokens last up to five minutes. The default grant lasts one hour and ends on restart.
+Configure [persistent grants](PERSISTENT-GRANTS.md) for a fixed lifetime up to seven days and
+restart recovery. To roll back, stop the service, restore the reviewed build and its compatible
+configuration, start it, and repeat metadata/login/read checks. Never restore an old grant
+snapshot: that could revive revoked access. Older builds require removing persistentGrants
+from configuration and users reconnecting.
 Stop the service and close the public route to end the pilot.
 
 ## Outbound tunnel alternative

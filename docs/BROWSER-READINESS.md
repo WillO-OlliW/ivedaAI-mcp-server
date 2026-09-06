@@ -21,10 +21,12 @@ separate validation. Do not interpret the full API inventory as a completed live
 
 Use [HOSTING.md](HOSTING.md), [REMOTE.md](REMOTE.md) and [TEAM-QUICKSTART.md](TEAM-QUICKSTART.md).
 ChatGPT uses automatic CIMD without manual callbacks; other clients can use exact registered
-public clients. DCR, persistent grants, replicated sessions and upstream MFA/federated login
-are not implemented. Tokens refresh automatically within a one-hour grant; restart or expiry
-requires reconnecting. The connector retains upstream credentials in process memory during
-the grant. Operator-configured certificate verification is per server and remains enabled.
+public clients. DCR, replicated sessions and upstream MFA/federated login are not implemented.
+Default grants last one hour in memory. Optional [encrypted persistent grants](PERSISTENT-GRANTS.md)
+last up to seven days and survive restart, while access tokens remain short-lived. Upstream
+credentials are retained for renewal. Scheduled custom-connector actions and their approval
+behavior still require separate ChatGPT acceptance testing.
+Operator-configured certificate verification is per server and remains enabled.
 
 The MCP host must reach each configured upstream. Public HTTPS is supported; private servers
 need routing from the MCP host. A user's laptop VPN does not provide that route to Lightsail.

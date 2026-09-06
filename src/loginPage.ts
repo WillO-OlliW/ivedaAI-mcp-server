@@ -1,7 +1,7 @@
 import { renderLoginArtwork } from "./loginArtwork.js";
 import { LOGIN_LOGO } from "./loginLogo.js";
 /** Self-contained login UI: no remote fonts, images, scripts or analytics. */
-export function renderLoginPage(input: { host: string; client: string; flow: string; csrf: string; nonce: string; writes: boolean; servers?: { name: string; origin: string }[] }) {
+export function renderLoginPage(input: { host: string; client: string; flow: string; csrf: string; nonce: string; writes: boolean; grantHours?: number; servers?: { name: string; origin: string }[] }) {
   const escape = (value: string) => value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
   const { writes } = input;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect IvedaAI</title>
@@ -15,5 +15,7 @@ ${input.servers ? `<label class="field" for="serverOrigin">IvedaAI server URL</l
 <label class="field" for="username">Username</label><input class="entry" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="512" required>
 <label class="field" for="password">Password</label><input class="entry" id="password" type="password" name="password" autocomplete="current-password" maxlength="4096" required>
 <fieldset class="access"><legend>Access you’re granting</legend><label class="choice"><input type="checkbox" name="consent" value="yes" required><span><strong>Allow this app to read my IvedaAI data</strong><small>Limited to the data your account can access.</small></span></label>${writes ? '<label class="choice"><input type="checkbox" name="writeConsent" value="yes" required><span><strong>Allow this app to make changes in IvedaAI</strong><small>Only actions enabled by your administrator and allowed by your account permissions.</small></span></label>' : ''}</fieldset>
+${input.grantHours ? `<p class="help">This connector stores your IvedaAI credentials encrypted on the company server for up to ${input.grantHours} hours so it can renew access. You can revoke this connection before it expires.</p>` : ""}
 <button class="submit" type="submit">Sign in and connect</button><p class="help">${writes ? 'Your existing IvedaAI permissions still apply.' : 'This connection can read data. It cannot make changes.'}</p></form><p class="cancel">To cancel, close this page.</p></div></section></main></body></html>`;
 }
+

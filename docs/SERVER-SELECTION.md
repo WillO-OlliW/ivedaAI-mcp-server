@@ -20,4 +20,4 @@ The login page lets users select or type a configured address. Unconfigured addr
 
 To use two instances, create two ChatGPT connections to the same MCP URL, label them by site, and select the matching server during each login. The selected destination is stored with the grant and retained during token refresh and API requests. Reconnecting requires choosing the server again; the field starts empty. Automatic ChatGPT client metadata discovery needs no manual callback setup.
 
-After changing the server list, restart the MCP service. Existing grants are process-local, so users must reconnect. Never put IvedaAI passwords in this configuration.
+After changing the server list, restart the MCP service. Changing the configured server list invalidates existing grants, including persistent grants, so users must reconnect. Never put IvedaAI passwords in this configuration.
