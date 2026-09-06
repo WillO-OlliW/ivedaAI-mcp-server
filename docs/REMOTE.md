@@ -268,7 +268,7 @@ account ownership and recover capacity; the 64 tool calls cause 64 upstream logi
 the preview's per-request authentication cost. These are functional load checks, not production
 throughput or latency measurements.
 
-Before a customer pilot, configure the approved AI client and callback, verify the chosen account
+Before a customer pilot, configure automatic CIMD or an approved manual client, verify the chosen account
 login flow and TLS through the actual proxy, and test linking and representative reads in the
 target browser AI app; confirm revocation and user permissions; and measure upstream login and
 concurrency behavior. No production-readiness or browser-client compatibility claim follows from

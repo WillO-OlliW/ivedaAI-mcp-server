@@ -100,10 +100,9 @@ Metadata should return 200 with the exact public issuer/resource. The unauthenti
 should return 401. These checks establish routing and authentication challenge availability,
 not successful upstream login. Test the browser flow next:
 
-1. Create or edit the AI app connection with the public `/mcp` URL and OAuth. Register its exact
-   callback in the protected configuration, restart the service, and enter the matching client ID
-   with no client secret for this public-client flow. After refreshing tools, start a new
-   conversation; an existing ChatGPT conversation can retain older operation definitions.
+1. Create the ChatGPT connection with the public /mcp URL and OAuth. Use automatic CIMD;
+   leave manual client credentials blank. Other clients may require an exact registered callback.
+   After refreshing tools, start a new conversation to avoid stale operation definitions.
 2. Sign in using the intended IvedaAI account. Read an allowed camera and verify a denied record
    with a restricted account. Refresh the connection's tools after configuration changes.
 3. Display a snapshot using `ivedaai_camera_snapshot`; verify an actual image card with the
