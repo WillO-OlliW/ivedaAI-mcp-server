@@ -12,7 +12,7 @@ import { describeBodySchema } from "../src/toolDocs.js";
 import { describeTriggerTypes } from "../src/alertTrigger.js";
 import { lossyUpdateWarning } from "../src/partialUpdate.js";
 import { computeRoundTripGaps, roundTripWarning } from "../src/roundTrip.js";
-import { capabilityNote } from "../src/capabilityNotes.js";
+import { capabilityNote, actionGuidanceNote } from "../src/capabilityNotes.js";
 import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "../src/request.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,7 +65,7 @@ function operationSection(op: Operation): string {
   // a person reads before wiring anything up, so omitting them here left the
   // human-facing docs quieter about data loss than the model-facing ones.
   const warnings = ctx.useBundledFindings
-    ? [capabilityNote(op.id), lossyUpdateWarning(op.id), roundTripWarning(roundTripGaps[op.id], op.id)]
+    ? [capabilityNote(op.id), actionGuidanceNote(op.id), lossyUpdateWarning(op.id), roundTripWarning(roundTripGaps[op.id], op.id)]
     : [];
   for (const warning of warnings) {
     if (warning) {

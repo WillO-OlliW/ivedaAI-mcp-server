@@ -16,6 +16,7 @@
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "docs": "tsx scripts/generate-tool-docs.ts",
+    "docs:writes": "tsx scripts/generate-write-inventory.ts",
     "measure": "tsx scripts/measure-tool-size.ts",
     "diff:spec": "tsx scripts/diff-spec.ts",
     "verify:evals": "tsx scripts/verify-evaluation.ts"

@@ -172,3 +172,22 @@ export const CAPABILITY_NOTES: Record<string, string> = {
 export function capabilityNote(operationId: string): string | undefined {
   return CAPABILITY_NOTES[operationId];
 }
+
+// Operator guidance, separate from the measured API findings above. These are
+// instructions to callers, not field-level authorization or claims of rollback.
+const ACTION_GUIDANCE: Record<string, string> = {
+  "POST /api/cameras/{cameraId}/jobs":
+    "ACTION: start or stop only the camera targets authorized by the user. Stopping interrupts their analytics; read status before acting and verify the final state. A capacity failure does not authorize stopping another camera to free a slot.",
+  "PATCH /api/cameras/{cameraId}":
+    "ACTION: this operation permits camera configuration changes, not just renaming. Identify the camera and requested fields, read its current configuration, preserve unrelated fields, and read back the result. Do not infer permission to change connection, recording or analytics settings from a request to rename it. Inspect state before retrying an uncertain response.",
+  "PATCH /api/alertRules/{alertRuleId}":
+    "ACTION: this operation permits rule configuration changes, not just name/cooldown edits. Read the rule first and preserve its condition, camera associations, schedule, enabled state and delivery settings unless the user requested those changes. Treat enabling a rule or changing notification destinations as a separate consequential change. Read back the result before reporting success or retrying.",
+  "POST /api/alertTriggers":
+    "ACTION: this is a trigger-delivery test, not a preview. Use only the notification destination and payload authorized for the test; do not substitute real recipients or repeat an uncertain delivery automatically.",
+  "PUT /api/jobs":
+    "ACTION: this operation has deployment-wide job scope. A request concerning one camera or job does not authorize operating all jobs; use the narrower documented operation for that target.",
+};
+
+export function actionGuidanceNote(operationId: string): string | undefined {
+  return ACTION_GUIDANCE[operationId];
+}

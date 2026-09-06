@@ -1,4 +1,5 @@
 import { createServer, request, type Server } from "node:http";
+import { readFileSync } from "node:fs";
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { generateKeyPair, exportJWK, createLocalJWKSet, SignJWT, type JWTPayload } from "jose";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -6,6 +7,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { createRemoteServer } from "../src/remoteServer.js";
 import { createAuthenticator, remoteConfigSchema, type RemoteConfig } from "../src/remoteAuth.js";
 import { SNAPSHOT_URI } from "../src/snapshotView.js";
+import { loadSwagger } from "../src/swagger.js";
+import { isReadSafe } from "../src/accessPolicy.js";
 
 const fixturePng = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a7XcAAAAASUVORK5CYII=";
 
@@ -137,6 +140,38 @@ async function rawStatus(url: string, headers: Record<string, string | string[]>
 }
 
 describe("HTTP MCP boundary", () => {
+  it.each(["camera-control", "maintenance"])("exposes exactly the reviewed %s profile and preserves read-grant isolation", async profile => {
+    const policy = JSON.parse(readFileSync(new URL(`../deploy/${profile}.policy.json`, import.meta.url), "utf8"));
+    const configured = remoteConfigSchema.parse({ ...config, ...policy });
+    const service = createRemoteServer({ ...configured, upstreamOrigin: `http://127.0.0.1:${(upstreamA.address() as { port: number }).port}` }, { keys });
+    const endpoint = `${await listen(service.http)}/mcp`;
+    const operations = loadSwagger().tags.flatMap(tag => tag.operations);
+    const writes = new Set(operations.filter(op => op.method !== "GET" && !isReadSafe(op)).map(op => op.id));
+    try {
+      const before = seen.length;
+      const writer = await (await post(endpoint, await token({ scope: "ivedaai:read ivedaai:write" }))).json();
+      const tools = writer.result.tools;
+      const enabled = tools.flatMap((tool: { inputSchema: { properties: { operation?: { enum: string[] } } } }) =>
+        tool.inputSchema.properties.operation?.enum ?? []).filter((id: string) => writes.has(id));
+      expect(enabled.sort()).toEqual([...policy.allowedWriteOperations].sort());
+      const camera = tools.find((tool: { name: string }) => tool.name === "ivedaai_camera");
+      expect(camera.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+      expect(camera.description).toContain("capacity failure does not authorize stopping another camera");
+      if (profile === "maintenance") {
+        expect(camera.description).toContain("not just renaming");
+        expect(tools.find((tool: { name: string }) => tool.name === "ivedaai_alert_rule").description).toContain("enabled state and delivery settings");
+      } else expect(camera.description).not.toContain("ACTION: this operation permits camera configuration");
+      const reader = await (await post(endpoint, await token())).json();
+      expect(reader.result.tools.find((tool: { name: string }) => tool.name === "ivedaai_camera").annotations.readOnlyHint).toBe(true);
+      for (const id of policy.allowedWriteOperations) {
+        const tool = id.includes("alertRules") ? "ivedaai_alert_rule" : "ivedaai_camera";
+        const denied = await (await post(endpoint, await token(), { jsonrpc: "2.0", id: 2, method: "tools/call",
+          params: { name: tool, arguments: { operation: id, path: { cameraId: 1, alertRuleId: "fixture" }, body: { name: "changed" } } } })).json();
+        expect(denied.result.isError).toBe(true);
+      }
+      expect(seen).toHaveLength(before);
+    } finally { await service.close(); }
+  });
   it("publishes discovery and challenges unauthenticated discovery without upstream calls", async () => {
     const before = seen.length;
     const response = await post(endpointA);

@@ -1,0 +1,5 @@
+{
+  "allowedWriteOperations": [
+    "POST /api/cameras/{cameraId}/jobs"
+  ]
+}

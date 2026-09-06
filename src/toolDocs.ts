@@ -1,4 +1,4 @@
-import { capabilityNote } from "./capabilityNotes.js";
+import { capabilityNote, actionGuidanceNote } from "./capabilityNotes.js";
 import { MULTIPART_BODY_FIELD, MULTIPART_FILE_FIELD } from "./request.js";
 import { describeTriggerTypesCompact } from "./alertTrigger.js";
 import type { Operation, ParamDef, TagGroup } from "./swagger.js";
@@ -231,6 +231,8 @@ function describeOperation(
   // caller is already making, this one is why the caller would pick it at all.
   const capability = useBundledFindings ? capabilityNote(op.id) : undefined;
   if (capability) lines.push(`  ${capability}`);
+  const guidance = useBundledFindings ? actionGuidanceNote(op.id) : undefined;
+  if (guidance) lines.push(`  ${guidance}`);
 
   // Stated in the docs as well as enforced at call time: a caller that knows
   // beforehand can send the right body instead of learning from a refusal.

@@ -68,7 +68,8 @@ jobs:
       - name: Generated tool docs are up to date
         run: |
           npm run docs
-          if ! git diff --exit-code -- docs/TOOLS.md; then
-            echo "::error::docs/TOOLS.md is stale — run 'npm run docs' and commit the result"
+          npm run docs:writes
+          if ! git diff --exit-code -- docs/TOOLS.md docs/WRITE-OPERATIONS.md; then
+            echo "::error::Generated docs are stale — run 'npm run docs' and 'npm run docs:writes' and commit the result"
             exit 1
           fi

@@ -58,6 +58,10 @@ workflows intended for that customer. Users must consent to write access; read g
 cannot invoke these actions. Rule edits should preserve the existing condition, schedule and
 delivery settings; see [alert-rule update guidance](USAGE.md).
 
+For a narrower start/stop profile or the complete enablement review, see
+[CUSTOMER-WRITE-POLICY.md](CUSTOMER-WRITE-POLICY.md). The maintenance fragment above does not
+enforce name-only camera edits or disabled-only rule edits.
+
 Install [ivedaai-mcp.service](../deploy/ivedaai-mcp.service) as
 `/etc/systemd/system/ivedaai-mcp.service`. Validate and start it:
 

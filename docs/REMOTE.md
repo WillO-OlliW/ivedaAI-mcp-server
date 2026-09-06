@@ -104,6 +104,9 @@ revocation or expiry. Each customer's operator must establish its production acc
 
 ## Enable selected actions
 
+See [CUSTOMER-WRITE-POLICY.md](CUSTOMER-WRITE-POLICY.md) for proposed camera-control and
+maintenance profiles, their actual permission scope, and the complete write-operation inventory.
+
 To enable camera start/stop control, add this property to the installation configuration:
 
 ```json

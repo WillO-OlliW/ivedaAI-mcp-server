@@ -346,6 +346,8 @@ _No parameters._
 
 **Body:** `{ abnormalTypes?:enum[](Abnormal|Disconnect|Normal|ResolutionChange), alertType?:enum(CAMERA_ABNORMAL|CROWD_DETECTION|DWELL|FACE_RECOGNITION|FALL|INTRUSION|LPR|OBJECT_COUNTING|+4 more), cameraIds?:integer[], cooldownInterval?:integer, countingRule?:CountingRule, description?:string, enableForever?:boolean, faceCategoryIds?:string[], hashtags?:string[], idrAccess?:enum(All|Denied|Granted), isEnabled?:boolean, lineIds?:integer[], lprCategoryIds?:string[], lprTypes?:LPRType[], name?:string, personTypes?:PersonType[], roiIds?:integer[], roiTypes?:RoiTypeReq[], trigger?:AlertTrigger, typeLogic?:enum(and|or), weekdays?:Weekday[] }`
 
+> ⚠️ ACTION: this operation permits rule configuration changes, not just name/cooldown edits. Read the rule first and preserve its condition, camera associations, schedule, enabled state and delivery settings unless the user requested those changes. Treat enabling a rule or changing notification destinations as a separate consequential change. Read back the result before reporting success or retrying.
+
 > ⚠️ NOTE: GET /api/alertRules/{alertRuleId} returns these fields under a different key — abnormalTypes → condition (JSON string).abnormalTypes, cameraIds → condition (JSON string).cameras, cooldownInterval → condition (JSON string).cooldownInterval, enableForever → schedule.forever, hashtags → condition (JSON string).hashtags, name → alertName, roiIds → condition (JSON string).roiIds, typeLogic → condition (JSON string).typeLogic, weekdays → schedule.weekdays. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it. NOTE: "countingRule", "faceCategoryIds", "idrAccess", "lineIds", "lprCategoryIds", "lprTypes", "personTypes", "roiTypes" have no known equivalent in GET /api/alertRules/{alertRuleId}, so they cannot be read back — but this endpoint keeps omitted fields, so they survive an update that leaves them out.
 
 #### `PUT /api/alertRules/{alertRuleId}` — Update alert rule
@@ -377,6 +379,8 @@ _No parameters._
 #### `POST /api/alertTriggers` — Test alert triggers
 
 **Body:** `{ trigger?:AlertTrigger }`
+
+> ⚠️ ACTION: this is a trigger-delivery test, not a preview. Use only the notification destination and payload authorized for the test; do not substitute real recipients or repeat an uncertain delivery automatically.
 
 ## ivedaai_analytic_config
 
@@ -507,6 +511,8 @@ _No parameters._
 
 **Body:** `{ account?:string, cameraType*:enum(App|External|Footage|General|Onvif|RecordedAnalytic|VideoSource), description?:string, detectionMode?:string, doRecording*:boolean, engineConfig?:EngineConfig, engineProfileId*:integer, externalMeta?:ExternalMeta, floorPlanAngle?:integer, floorPlanId?:string, floorPlanX?:number, floorPlanY?:number, frameRate?:number, gpuId?:integer, hwDecode?:boolean, ip?:string, latitude?:number, locationType?:enum(GPS_MAP|INDOOR_MAP|NONE), longitude?:number, manufacturer?:string, model?:string, name?:string, nvrChannel?:string, nvrId?:string, password?:string, plugins?:enum(AgeGenderClassifier|CrossCameraTrackingEngine|CrowdDetectionEngine|DwellEngine|ExtraAlertTrigger|FaceGdpr|FaceRecognitionEngine|HumanAttributeEngine|+17 more), port?:integer, protocol*:enum(Both|TCP|UDP), resolution?:string, roiContour*:VoContour[], schedule?:Schedule, streamUrl?:string }`
 
+> ⚠️ ACTION: this operation permits camera configuration changes, not just renaming. Identify the camera and requested fields, read its current configuration, preserve unrelated fields, and read back the result. Do not infer permission to change connection, recording or analytics settings from a request to rename it. Inspect state before retrying an uncertain response.
+
 > ⚠️ NOTE: GET /api/cameras/{cameraId} returns this field under a different key — nvrId → nvr.nvrId. This endpoint has been confirmed to leave omitted fields alone, so this is for reading the value, not a warning about losing it. NOTE: "doRecording", "engineConfig" have no known equivalent in GET /api/cameras/{cameraId}, so they cannot be read back — but this endpoint keeps omitted fields, so they survive an update that leaves them out.
 
 #### `PUT /api/cameras/{cameraId}` — Update cameara
@@ -527,6 +533,8 @@ _No parameters._
 | `activate` | query | **yes** | boolean | activate. |
 
 > ⚠️ NOTE: this is how a camera is activated and deactivated. activate=true starts analytics processing, activate=false stops it. The camera's "status" becomes "Processing" or "Idle" within about a second, and the deployment records an ACTIVATE/DEACTIVATE audit entry. There is no activation field on the camera record — read the current state from "status", or with GET /api/cameras?isActivate=true|false. The two directions do not behave alike, so check "status" before calling either: activate=true on a camera that is already active answers 200 but cancels its running job and starts a new one, which interrupts analytics; activate=false on a camera that is already idle answers 400 "Camera is not active". Both matter when setting several cameras at once. Activation is also capped by licence: once the deployment is at its limit, activate=true fails with 400 errorCode 305, "Number of active cameras has reached the maximum allowed" — a full deployment, not a bad request, so the fix is to deactivate another camera rather than to retry or to change the arguments.
+
+> ⚠️ ACTION: start or stop only the camera targets authorized by the user. Stopping interrupts their analytics; read status before acting and verify the final state. A capacity failure does not authorize stopping another camera to free a slot.
 
 #### `GET /api/cameras/{cameraId}/rva-heatmap` — Get RVA heatmap
 
@@ -1570,6 +1578,8 @@ _No parameters._
 | `action` | query | **yes** | string | action. — one of: CANCEL, SUSPEND |
 
 > ⚠️ NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, which cancels one camera's job, before using this one.
+
+> ⚠️ ACTION: this operation has deployment-wide job scope. A request concerning one camera or job does not authorize operating all jobs; use the narrower documented operation for that target.
 
 #### `POST /api/jobs/{cameraId}` — Cancel job by camera
 
