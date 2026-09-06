@@ -4,14 +4,19 @@ import type { TokenManager } from "./auth.js";
 import type { SwaggerContext } from "./swagger.js";
 import { executeOperation } from "./request.js";
 
-export const SNAPSHOT_URI = "ui://ivedaai/snapshot-v3.html";
+export const SNAPSHOT_URI = "ui://ivedaai/snapshot-v4.html";
 export const SNAPSHOT_HTML = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font:14px system-ui,sans-serif;margin:0;padding:16px;color:light-dark(#18212b,#eef2f6);background:light-dark(#fff,#18212b);color-scheme:light dark}h2{font-size:18px;margin:0 0 8px}p{margin:8px 0}img{display:block;width:100%;height:auto;max-height:640px;object-fit:contain;border-radius:8px}img[hidden]{display:none}.muted{opacity:.7}</style>
 <h2 id="title">Camera snapshot</h2><p id="status" role="status">Waiting for the snapshot result…</p><img id="frame" hidden alt="Camera snapshot"><p class="muted" id="time"></p>
 <script>
 const frame=document.getElementById('frame'),status=document.getElementById('status');
 let ready=false;
-function resize(){if(ready)window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/size-changed',params:{height:Math.ceil(document.body.getBoundingClientRect().height)}},'*');}
+function resize(){
+ const height=Math.ceil(document.body.getBoundingClientRect().height);
+ if(ready)window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/size-changed',params:{height}},'*');
+ // Some ChatGPT hosts deliver results through the compatibility bridge without completing ui/initialize.
+ if(typeof window.openai?.notifyIntrinsicHeight==='function')window.openai.notifyIntrinsicHeight(height);
+}
 new ResizeObserver(resize).observe(document.body);
 function render(envelope){
  const data=envelope?.structuredContent,media=envelope?._meta?.snapshotImage;
@@ -22,14 +27,14 @@ function render(envelope){
  document.getElementById('time').textContent=typeof data.retrievedAt==='string'?'Retrieved '+data.retrievedAt+' · Single frame, not a video stream':'';
  status.textContent=typeof data.message==='string'?data.message:'No snapshot was returned.';
  if(data.available===true&&media&&['image/jpeg','image/png','image/gif','image/webp'].includes(media.mimeType)&&typeof media.base64==='string'&&media.base64.length<=5592408&&/^[A-Za-z0-9+/]+={0,2}$/.test(media.base64)){
-  frame.onload=()=>{frame.hidden=false;status.textContent='Snapshot received.';};
+  frame.onload=()=>{frame.hidden=false;status.textContent='Snapshot received.';resize();};
   frame.onerror=()=>{frame.hidden=true;frame.removeAttribute('src');status.textContent='The returned image could not be displayed.';};
   frame.alt=label;frame.src='data:'+media.mimeType+';base64,'+media.base64;
  }
 }
 function compatibility(){
  const api=window.openai,meta=api?.toolResponseMetadata;
- render(meta?.mcp_tool_result??meta?.call_tool_result??{structuredContent:api?.toolOutput,_meta:meta});
+ render(meta?.mcp_tool_result??meta?.call_tool_result??{structuredContent:api?.toolOutput,_meta:meta});resize();
 }
 window.addEventListener('message',event=>{
  if(event.source!==window.parent||event.data?.jsonrpc!=='2.0')return;

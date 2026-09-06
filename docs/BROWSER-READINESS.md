@@ -13,6 +13,8 @@ Each customer has their own IvedaAI server; there is no shared upstream installa
 Network access varies by customer: some installations are internet-accessible and others require
 a private network or VPN. Both deployment paths must be supported in the product design.
 Customers will use their existing IvedaAI login; a separate sign-in vendor is not required.
+For the team beta, use the native per-user HTTP route and [teammate quickstart](TEAM-QUICKSTART.md).
+The shared-account stdio tunnel below is an alternative, not the per-user write-capable setup.
 
 ## What exists
 

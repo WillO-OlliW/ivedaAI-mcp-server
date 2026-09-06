@@ -1,5 +1,24 @@
 # One-customer browser pilot
 
+## Recommended team pilot: individual IvedaAI login
+
+For the current write-capable browser pilot, follow [HOSTING.md](HOSTING.md) and
+[REMOTE.md](REMOTE.md) using native `auth: "ivedaai"` HTTP authentication. Each teammate
+signs in with their own IvedaAI account. Configure one fixed installation per runtime.
+Enable only the required operations using the [customer write policy](CUSTOMER-WRITE-POLICY.md);
+write access also requires the user's consent and upstream account permission.
+
+Before inviting users, verify the actual connection route, two accounts with different grants,
+read-only denial of writes, an approved camera action with restoration, and restart/reconnect.
+Record the candidate version, operator, permitted users, availability and support contact.
+Use the [teammate quickstart](TEAM-QUICKSTART.md) for onboarding.
+
+## Alternative: shared-account stdio tunnel
+
+The remaining instructions describe a separate, read-only stdio option. They do not configure
+native per-user login or the write-capable HTTP pilot. Do not use a shared-account process for
+teammates who have different IvedaAI permissions.
+
 Prepared for customers who each operate their own IvedaAI server. This is an operator runbook;
 no customer runtime, tunnel or public endpoint has been provisioned. Start with an authorized
 test installation. The existing stdio executable can support a private ChatGPT tunnel pilot,

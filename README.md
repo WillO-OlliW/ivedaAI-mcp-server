@@ -14,6 +14,8 @@ customer server and isolated user accounts. Customers can use their existing Ive
 no separate sign-in vendor is required. An HTTPS reverse proxy and approved AI-client callback
 configuration are needed; real browser-client/TLS validation is still outstanding.
 See [browser connection requirements](docs/BROWSER-READINESS.md) for deployment options.
+Pilot teammates can use the [team quickstart](docs/TEAM-QUICKSTART.md); operators should start
+with the [per-user pilot route](docs/CUSTOMER-PILOT.md#recommended-team-pilot-individual-ivedaai-login).
 `IVEDAAI_BASE_URL` is the upstream application's address, not an MCP connection URL.
 
 The bundled API defines 316 operations. By default, 295 are exposed through 63 resource tools,
