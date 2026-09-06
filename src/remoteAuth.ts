@@ -45,7 +45,7 @@ export const remoteConfigSchema = z.object({
   }
 });
 export type RemoteConfig = z.infer<typeof remoteConfigSchema>;
-export type RemoteSubject = RemoteConfig["subjects"][number] & { signal?: AbortSignal; scopes?: readonly string[] };
+export type RemoteSubject = RemoteConfig["subjects"][number] & { signal?: AbortSignal; scopes?: readonly string[]; upstream?: { upstreamOrigin: string; upstreamTls?: z.infer<typeof upstreamTlsSchema> } };
 export const READ_SCOPE = "ivedaai:read";
 export const WRITE_SCOPE = "ivedaai:write";
 export function remoteScopes(config: { allowedWriteOperations?: readonly string[] }): string[] {

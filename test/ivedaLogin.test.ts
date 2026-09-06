@@ -377,3 +377,54 @@ describe("existing IvedaAI login", () => {
     expect(logins).toHaveLength(5);
   });
 });
+
+describe("server selection", () => {
+  it("rejects unconfigured destinations before sending credentials", async () => {
+    const flow = await start();
+    expect(flow.html).toContain('name="serverOrigin"');
+    const response = await login(flow, { serverOrigin: "https://unapproved.example" });
+    expect(response.status).toBe(400);
+    expect(logins).toEqual([]);
+  });
+  it("binds credentials, refresh and API calls to the selected instance", async () => {
+    const requests: string[] = [];
+    const second = createServer(async (req, res) => {
+      requests.push(req.url!);
+      res.setHeader("content-type", "application/json");
+      if (req.url?.endsWith("/oauth2/token")) {
+        let body = ""; for await (const chunk of req) body += chunk;
+        expect(new URLSearchParams(body).get("username")).toBe("alice");
+        res.end(JSON.stringify({ access_token: "second-alice", expires_in: 3600, token_type: "Bearer" }));
+      } else {
+        expect(req.headers.authorization).toBe("Bearer second-alice");
+        res.end(JSON.stringify({ cameraId: 1, name: "Second instance" }));
+      }
+    });
+    const secondOrigin = await listen(second);
+    try {
+      await service.close();
+      service = createIvedaLoginServer({ ...config, upstreamOrigin: `http://127.0.0.1:${(upstream.address() as {port:number}).port}`,
+        upstreamServers: [{ name: "Warehouse", upstreamOrigin: secondOrigin }] });
+      base = await listen(service.http);
+      const first = await linked();
+      const flow = await start();
+      expect(flow.html).toContain("Warehouse");
+      const response = await login(flow, { serverOrigin: secondOrigin });
+      expect(response.status).toBe(303);
+      const code = new URL(response.headers.get("location")!).searchParams.get("code")!;
+      const tokens = await (await exchange(flow, code)).json();
+      const a = await service.provider.authenticate(`Bearer ${first.tokens.access_token}`);
+      const b = await service.provider.authenticate(`Bearer ${tokens.access_token}`);
+      expect(a.subject).not.toBe(b.subject);
+      expect(b.upstream?.upstreamOrigin).toBe(secondOrigin);
+      const result = await fetch(base + "/mcp", { method: "POST", headers: { authorization: `Bearer ${tokens.access_token}`, "content-type": "application/json", accept: "application/json, text/event-stream" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "ivedaai_camera", arguments: { operation: "GET /api/cameras/{cameraId}", path: { cameraId: 1 } } } }) });
+      expect(await result.text()).toContain("Second instance");
+      const before = requests.length;
+      const refreshed = await form("/token", { client_id: "approved-ai", grant_type: "refresh_token", refresh_token: tokens.refresh_token, resource: config.publicUrl });
+      expect(refreshed.status).toBe(200);
+      expect(requests.length).toBeGreaterThan(before);
+      expect(logins).toEqual(["alice"]);
+    } finally { await new Promise<void>(resolve => { second.close(() => resolve()); second.closeAllConnections(); }); }
+  });
+});

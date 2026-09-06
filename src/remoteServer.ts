@@ -132,11 +132,11 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
       const body = await readBody(req);
       if (ended) return;
       const upstream: IvedaAIConfig = {
-        origin: config.upstreamOrigin.replace(/\/$/, ""), basePath: ctx.basePath, tokenUrl: ctx.tokenUrl,
+        origin: (subject.upstream?.upstreamOrigin ?? config.upstreamOrigin).replace(/\/$/, ""), basePath: ctx.basePath, tokenUrl: ctx.tokenUrl,
         username: subject.username, password: subject.password,
         timeoutMs: 25000, maxResponseBytes: 28672, maxImageBytes: 4194304, inlineImages: true,
         redactSecrets: true, uploadPolicy: { maxBytes: 1, allowUnconfined: false },
-        dispatcher: createDispatcher(),
+        dispatcher: subject.upstream ? remoteDispatcher(subject.upstream)() : createDispatcher(),
       };
       manager = new TokenManager(upstream);
       const canWrite = writeOperations.length > 0 && subject.scopes?.includes(WRITE_SCOPE) === true;
