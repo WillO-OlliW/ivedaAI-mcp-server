@@ -138,7 +138,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     + "pagination.total: that is an exact figure for well under "
     + "a kilobyte, and start/end, alertTypes, states, cameraIds and alertRuleIds all combine. Repeat it per "
     + "value to break a total down. Use GET /api/alerts/latest for what is happening now rather than paging "
-    + "this one from the start.",
+    + "this one from the start. For the most recent N alerts in a bounded window, use size=N and "
+    + "sort=datetime,DESC (not createDate). Resolve start/end to explicit ISO timestamps with Z or a "
+    + "numeric UTC offset; do not rely on timezone to interpret offset-free local timestamps. Convert "
+    + "returned datetime values to the user's timezone for display. For stored alert images in remote "
+    + "clients, use ivedaai_alert_image with the alertId; a current camera snapshot is not alert evidence.",
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +

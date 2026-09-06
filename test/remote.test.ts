@@ -44,6 +44,16 @@ function upstream(customer: string) {
     } else {
       const username = req.headers.authorization?.replace("Bearer token-", "");
       seen.push({ customer, username, path });
+      if (path.includes("/alerts/")) {
+        if (username === "account-bob") { res.writeHead(403); res.end('{}'); return; }
+        res.end(JSON.stringify({ sceneId: path.endsWith('/43') ? null : 123, alertType: "INTRUSION" })); return;
+      }
+      if (path.includes("/scenes/")) {
+        if (!path.endsWith('/api/scenes/123/Alert') || new URL(req.url!, 'http://fixture').searchParams.get('eventType') !== 'INTRUSION') {
+          res.writeHead(400); res.end('{}'); return;
+        }
+        res.setHeader('content-type', 'image/png'); res.end(Buffer.from(fixturePng, 'base64')); return;
+      }
       if (path.includes("/streaming/")) {
         if (username === "account-bob") { res.writeHead(403); res.end('{"error":"No camera grant"}'); return; }
         if (path.includes("/43/")) { res.writeHead(204); res.end(); return; }
@@ -206,7 +216,7 @@ describe("HTTP MCP boundary", () => {
   it("supports actual SDK discovery with only read tools, OAuth metadata and no session ID", async () => {
     await withClient(endpointA, await token(), async client => {
       const list = await client.listTools();
-      expect(list.tools).toHaveLength(56);
+      expect(list.tools).toHaveLength(57);
       expect(list.tools.some(t => t.name === "ivedaai_add_camera")).toBe(false);
       expect(list.tools[0]._meta?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["ivedaai:read"] }]);
     });
@@ -247,6 +257,36 @@ describe("HTTP MCP boundary", () => {
       expect(result.structuredContent).toMatchObject({ status: 204, available: false });
       expect(result._meta).toBeUndefined();
       expect(result.content).toHaveLength(1);
+    });
+  });
+  it("delivers the stored alert scene to the viewer with no live snapshot substitution", async () => {
+    await withClient(endpointA, await token(), async client => {
+      const tool = (await client.listTools()).tools.find(t => t.name === 'ivedaai_alert_image')!;
+      expect(tool._meta?.ui).toEqual({ resourceUri: SNAPSHOT_URI });
+      const before = seen.length;
+      const result = await client.callTool({ name: tool.name, arguments: { alertId: 42 } });
+      expect(result.structuredContent).toMatchObject({ alertId: 42, available: true });
+      expect(result.content).toContainEqual({ type: 'image', data: fixturePng, mimeType: 'image/png' });
+      expect(result._meta).toEqual({ snapshotImage: { base64: fixturePng, mimeType: 'image/png' } });
+      expect(seen.slice(before).filter(x => !x.path.endsWith('/token')).map(x => x.path.replace(/^\/ainvr/, ''))).toEqual(['/api/alerts/42', '/api/scenes/123/Alert']);
+    });
+  });
+  it("does not request an image when an alert has no scene", async () => {
+    await withClient(endpointA, await token(), async client => {
+      const before = seen.length;
+      const result = await client.callTool({ name: 'ivedaai_alert_image', arguments: { alertId: 43 } });
+      expect(result.structuredContent).toMatchObject({ available: false });
+      expect(result._meta).toBeUndefined();
+      expect(seen.slice(before).some(x => /scenes|streaming/.test(x.path))).toBe(false);
+    });
+  });
+  it("honors alert access denial before fetching its scene", async () => {
+    await withClient(endpointA, await token({ sub: 'bob' }), async client => {
+      const before = seen.length;
+      const result = await client.callTool({ name: 'ivedaai_alert_image', arguments: { alertId: 42 } });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ status: 403, available: false });
+      expect(seen.slice(before).some(x => /scenes|streaming/.test(x.path))).toBe(false);
     });
   });
   it("preserves account permissions and validates snapshot IDs before upstream access", async () => {

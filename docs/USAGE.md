@@ -157,6 +157,30 @@ path, which often doesn't match a camera's actual manufacturer-specific stream p
 2. `ivedaai_alert` → `GET /api/alerts` with time-range/camera filters — triggered alerts.
 3. `ivedaai_false_report` — mark false positives.
 
+### Summarize recent alerts and review their images
+
+Ask: *"Show my five most recent alerts, newest first, with the camera, local time,
+recorded type, rule name, status and alert ID. Explain the recorded details without guessing."*
+
+For bounded searches, resolve the requested window to ISO timestamps with an explicit `Z` or
+numeric UTC offset. Call `GET /api/alerts` with `size: 5` and `sort: "datetime,DESC"`.
+Do not use `createDate` for alert ordering or rely on `timezone` to interpret offset-free timestamps.
+State the exact window and widen it only if necessary. Convert returned timestamps for display.
+
+For a summary of a larger window, use `pagination.total` and `POST /api/alerts/statistics`
+grouped by type, camera and state, with matching filters. Reconcile totals and disclose incomplete
+responses. Small pages supply examples, not collection-wide counts. Compare equivalent prior
+windows before describing changes; a single comparison does not establish an anomaly.
+
+In remote clients, *"Show the image from the second alert"* should call `ivedaai_alert_image`
+with the ID from that list. It reads the stored alert scene and delivers it to an embedded viewer.
+It does not substitute a current camera snapshot. Missing scenes and denied requests are reported
+explicitly. Delivery is not proof that a client rendered the image; report that distinction when needed.
+Refresh the client's tools after upgrading, and start a new conversation if it retains older definitions.
+
+Alert records are not necessarily distinct incidents or people. Rule labels and recognition
+metadata do not establish verified identity, membership status, or an ongoing threat.
+
 ### Connect alerts to an external system (webhook, VMS, etc.)
 
 This is one of the most common real-world uses of the API — routing IvedaAI alerts into another
