@@ -4,7 +4,8 @@
 
 For the current write-capable browser pilot, follow [HOSTING.md](HOSTING.md) and
 [REMOTE.md](REMOTE.md) using native `auth: "ivedaai"` HTTP authentication. Each teammate
-signs in with their own IvedaAI account. Configure one fixed installation per runtime.
+signs in with their own IvedaAI account. Configure the company server choices using [SERVER-SELECTION.md](SERVER-SELECTION.md);
+each connection selects one server.
 Enable only the required operations using the [customer write policy](CUSTOMER-WRITE-POLICY.md);
 write access also requires the user's consent and upstream account permission.
 

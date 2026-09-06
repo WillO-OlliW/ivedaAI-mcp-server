@@ -3,12 +3,6 @@
   "publicUrl": "https://mcp.customer.example/mcp",
   "upstreamOrigin": "https://ivedaai.customer.example",
   "port": 3000,
-  "clients": [
-    {
-      "clientId": "ivedaai-customer",
-      "name": "Customer AI app",
-      "redirectUris": ["https://ai-app.example/exact-callback-from-app-settings"]
-    }
-  ],
+  "clients": [],
   "allowedWriteOperations": []
 }

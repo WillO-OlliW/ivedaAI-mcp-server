@@ -30,17 +30,18 @@ the unchanged stdio command. It is tested against local mock services and signed
 Existing IvedaAI login, token exchange, a camera read, refresh and revocation also passed through
 a temporary loopback connector against the authorized test deployment. The temporary HTTPS
 ChatGPT pilot also passed login, camera reads and snapshot display; the user reported successful
-camera start/stop with the final state restored. Production hosting and TLS remain unvalidated. Private-network relay
+camera start/stop with the final state restored. Lightsail Ubuntu 24.04 hosting and verified HTTPS have passed deployment checks. Private-network relay
 support for other AI vendors is not implemented.
 
-## One installation, explicit user accounts
+## One company, explicit user accounts
 
-Run one instance per customer installation. Its configuration fixes the IvedaAI origin and maps
-users to their individual IvedaAI accounts. In the primary `auth: "ivedaai"` mode, users enter
-their existing IvedaAI username/password in the connector's HTTPS login page and consent to read
-access. The connector validates the login against that installation and issues a separate opaque
-MCP token. IvedaAI's application permissions remain authoritative. The MCP token is never
-forwarded to IvedaAI, and the AI client never receives the user's IvedaAI password.
+Run one connector per company. Configure a default IvedaAI origin and optional named servers
+using [SERVER-SELECTION.md](SERVER-SELECTION.md). Users select or enter a configured address
+on the HTTPS login page and use their own credentials. The field starts empty. Each grant binds
+its selected origin, certificate trust, account and scopes; refresh and API calls retain that
+binding. Unconfigured addresses are rejected before forwarding credentials. IvedaAI permissions
+remain authoritative. The MCP token is never forwarded upstream and ChatGPT never receives the
+IvedaAI password.
 
 Each HTTP request gets a fresh MCP server and upstream token manager. There are no shared MCP
 sessions or persistent upstream token caches across requests. This trades additional upstream
@@ -56,12 +57,11 @@ surface against the intended users' application grants.
 ## Use existing IvedaAI login
 
 No separate identity provider or duplicate user account is required. The connector supplies the
-OAuth compatibility layer using the MCP SDK's authorization-code/PKCE routes. It accepts only
-pre-registered public clients with exact HTTPS callback URLs and the `ivedaai:read` scope, plus
-`ivedaai:write` when selected actions are enabled and the user consents to changes.
-Copy the exact redirect URI shown by the AI app into the configuration; do not guess a callback
-or allow wildcard destinations. Enter the matching client ID in the AI app's connection setup.
-See [OpenAI callback and OAuth requirements](https://developers.openai.com/plugins/build/auth).
+OAuth compatibility layer using the MCP SDK's authorization-code/PKCE routes. ChatGPT automatically uses CIMD: the connector fetches bounded metadata only from supported
+HTTPS URLs on chatgpt.com and validates exact published callbacks. No manual callback or client
+ID is needed. Existing pre-registered public clients remain supported. DCR is not implemented.
+Read and optional write scopes still require user consent.
+See [OpenAI OAuth requirements](https://developers.openai.com/plugins/build/auth).
 
 Create a protected installation configuration outside the repository:
 
@@ -71,13 +71,7 @@ Create a protected installation configuration outside the repository:
   "publicUrl": "https://mcp.customer.example/mcp",
   "upstreamOrigin": "https://ivedaai.customer.example",
   "port": 3000,
-  "clients": [
-    {
-      "clientId": "customer-approved-ai",
-      "name": "Approved AI app",
-      "redirectUris": ["https://ai-app.example/exact-callback-from-app-settings"]
-    }
-  ]
+  "clients": []
 }
 ```
 

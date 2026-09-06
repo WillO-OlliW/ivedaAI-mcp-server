@@ -1,9 +1,10 @@
 # Host a customer browser pilot
 
-These templates prepare one Linux host for one IvedaAI installation. They do not provision a
-server, domain or account. The configuration has been checked against the connector's schema;
-the systemd and Caddy deployment still needs acceptance on the chosen Linux host. This remains a
-preview, with the release gates in [REMOTE.md](REMOTE.md).
+These templates deploy one connector per company. Native login supports one or more
+company-configured IvedaAI servers, with one selected server per OAuth connection.
+A Lightsail Ubuntu 24.04 deployment has passed HTTPS, login, alert, snapshot and camera-control
+checks. Each customer deployment still needs its own acceptance checks. See [REMOTE.md](REMOTE.md)
+and [SERVER-SELECTION.md](SERVER-SELECTION.md).
 
 ## Required operator inputs
 
@@ -12,7 +13,8 @@ preview, with the release gates in [REMOTE.md](REMOTE.md).
   80/443 available for this Caddy setup. Keep port 3000 private to loopback.
 - Network access from that host to the customer's IvedaAI HTTPS origin. For private installations,
   place it inside the approved network or provide an approved VPN route.
-- The AI client's exact OAuth callback, and the existing IvedaAI accounts allowed to use it.
+- Existing IvedaAI accounts allowed to use the connector. ChatGPT uses automatic CIMD setup;
+  other clients may require manually registered exact callbacks.
 
 Caddy's [automatic HTTPS](https://caddyserver.com/docs/automatic-https) manages certificates for
 the configured hostname. The [reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)
@@ -35,7 +37,7 @@ to the checkout. The example service expects Node at `/usr/bin/node`; adjust tha
 the installed runtime if needed.
 
 Copy [customer.example.json](../deploy/customer.example.json) to `/etc/ivedaai-mcp/customer.json`.
-Replace all example hosts and the callback. Keep that configuration outside source control, owned
+Replace all example hosts. Leave `clients: []` for automatic ChatGPT setup. Keep that configuration outside source control, owned
 by root with group `ivedaai-mcp`, mode `0640`, inside a directory with mode `0750`. No IvedaAI
 password belongs in native-login configuration. For private CA certificates, configure
 `upstreamTls` as described in [REMOTE.md](REMOTE.md#configuration-and-startup); put the public CA

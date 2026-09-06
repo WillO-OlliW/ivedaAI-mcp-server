@@ -19,7 +19,7 @@ the API for you:
 
 These instructions use the package's default stdio transport. For the separate authenticated,
 HTTP entry point, see [REMOTE.md](REMOTE.md); it supports existing IvedaAI login, optional consented actions and
-requires HTTPS proxy/client-callback setup. Browser deployment options are described in
+requires HTTPS proxy setup; ChatGPT client setup uses automatic CIMD. Browser deployment options are described in
 [browser connection requirements](BROWSER-READINESS.md).
 
 ### Prepare the application account
