@@ -171,6 +171,9 @@ describe("HTTP MCP boundary", () => {
         expect(camera.description).toContain("not just renaming");
         expect(tools.find((tool: { name: string }) => tool.name === "ivedaai_alert_rule").description).toContain("enabled state and delivery settings");
       } else expect(camera.description).not.toContain("ACTION: this operation permits camera configuration");
+      const challenge = await post(endpoint);
+      expect(challenge.status).toBe(401);
+      expect(challenge.headers.get("www-authenticate")).toContain('scope="ivedaai:read ivedaai:write"');
       const reader = await (await post(endpoint, await token())).json();
       expect(reader.result.tools.find((tool: { name: string }) => tool.name === "ivedaai_camera").annotations.readOnlyHint).toBe(true);
       for (const id of policy.allowedWriteOperations) {
@@ -187,6 +190,7 @@ describe("HTTP MCP boundary", () => {
     const response = await post(endpointA);
     expect(response.status).toBe(401);
     expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+    expect(response.headers.get("www-authenticate")).toContain('scope="ivedaai:read"');
     const metadata = await fetch(endpointA.replace("/mcp", "/.well-known/oauth-protected-resource"));
     expect(await metadata.json()).toMatchObject({ resource: config.publicUrl, authorization_servers: [config.issuer] });
     expect(seen.length).toBe(before);

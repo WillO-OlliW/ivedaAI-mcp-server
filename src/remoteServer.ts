@@ -163,7 +163,7 @@ export function createRemoteServer(config: RemoteConfig, dependencies: {
       if (ended) return;
       if (error instanceof AuthenticationError) {
         const detail = error.status === 401 ? "invalid_token" : "insufficient_scope";
-        res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${metadataUrl}", scope="${READ_SCOPE}", error="${detail}"`);
+        res.setHeader("WWW-Authenticate", `Bearer resource_metadata="${metadataUrl}", scope="${remoteScopes(config).join(" ")}", error="${detail}"`);
         reply(error.status, error.message);
       } else if (error instanceof HttpError) reply(error.status, error.message);
       else reply(500, "Internal server error");
