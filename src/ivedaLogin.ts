@@ -1,3 +1,4 @@
+import { ChatGPTClientResolver } from "./chatgptClient.js";
 import { renderLoginPage } from "./loginPage.js";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import express, { type Response } from "express";
@@ -22,7 +23,7 @@ export const ivedaLoginConfigSchema = z.object({
     clientId: z.string().min(1).max(200),
     name: z.string().min(1).max(100),
     redirectUris: z.array(httpsUrl).min(1).max(5),
-  }).strict()).min(1).max(20),
+  }).strict()).max(20).default([]),
 }).strict().refine(c => new Set(c.clients.map(x => x.clientId)).size === c.clients.length, "Duplicate client ID");
 export type IvedaLoginConfig = z.infer<typeof ivedaLoginConfigSchema>;
 type Session = { username: string; password: string; clientId: string; expires: number; controller: AbortController; scopes: string[] };
@@ -43,7 +44,8 @@ export class IvedaLoginProvider implements OAuthServerProvider {
   private readonly clients = new Map<string, OAuthClientInformationFull>();
   private readonly sweepTimer: NodeJS.Timeout;
   private closed = false;
-  readonly clientsStore = { getClient: (id: string) => this.clients.get(id) };
+  private readonly chatgptClients = new ChatGPTClientResolver();
+  readonly clientsStore = { getClient: (id: string) => this.clients.get(id) ?? this.chatgptClients.getClient(id) };
   constructor(readonly config: IvedaLoginConfig, readonly validateLogin: (username: string, password: string, signal?: AbortSignal) => Promise<void>) {
     for (const client of config.clients) this.clients.set(client.clientId, {
       client_id: client.clientId, client_name: client.name, redirect_uris: client.redirectUris,
@@ -208,7 +210,7 @@ export function createIvedaLoginServer(config: IvedaLoginConfig) {
   });
   const authOptions = { provider, issuerUrl: new URL(publicOrigin + "/"), resourceServerUrl: new URL(config.publicUrl), scopesSupported: remoteScopes(config) };
   app.get("/.well-known/oauth-authorization-server", (_req, res) => res.json({
-    ...createOAuthMetadata(authOptions), token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"],
+    ...createOAuthMetadata(authOptions), client_id_metadata_document_supported: true, token_endpoint_auth_methods_supported: ["none"], revocation_endpoint_auth_methods_supported: ["none"],
   }));
   app.use(mcpAuthRouter(authOptions));
   app.use((_error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { res.status(400).json({ error: "invalid_request" }); });

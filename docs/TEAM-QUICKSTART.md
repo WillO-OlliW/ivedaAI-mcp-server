@@ -1,6 +1,6 @@
 # IvedaAI team beta quickstart
 
-Your pilot operator supplies the connection URL, client ID, installation name, availability,
+Your pilot operator supplies the connection URL, installation name, availability,
 approved test camera and support contact. These details must be filled in before invitations;
 the repository does not provide a hosted service. Use your own IvedaAI account.
 
