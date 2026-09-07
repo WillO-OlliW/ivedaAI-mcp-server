@@ -129,7 +129,7 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "carrying just that is refused with a 400 naming the other four and no record created. Creating the " +
     "record does not start the camera either; it stays Idle until activated. For onboarding a real camera " +
     "prefer the ivedaai_add_camera tool, which supplies these and the other defaults, activates the camera, " +
-    "and cleans up after a partial create.",
+    "and reports uncertain partial creation for inspection before retrying.",
 
   "GET /api/alerts":
     "NOTE: on an active deployment this collection is very large — hundreds of thousands of records over a "
@@ -138,7 +138,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     + "pagination.total: that is an exact figure for well under "
     + "a kilobyte, and start/end, alertTypes, states, cameraIds and alertRuleIds all combine. Repeat it per "
     + "value to break a total down. Use GET /api/alerts/latest for what is happening now rather than paging "
-    + "this one from the start.",
+    + "this one from the start. For the most recent N alerts in a bounded window, use size=N and "
+    + "sort=datetime,DESC (not createDate). Resolve start/end to explicit ISO timestamps with Z or a "
+    + "numeric UTC offset; do not rely on timezone to interpret offset-free local timestamps. Convert "
+    + "returned datetime values to the user's timezone for display. For stored alert images in remote "
+    + "clients, use ivedaai_alert_image with the alertId; a current camera snapshot is not alert evidence.",
 
   "GET /api/cameras":
     'NOTE: isActivate filters on whether a camera is actively processing. The camera record carries no ' +
@@ -158,6 +162,11 @@ export const CAPABILITY_NOTES: Record<string, string> = {
     "404 Not Found rather than trusting the 202 — it is 202 Accepted, not 204, so it promises nothing about " +
     "having happened.",
 
+  "POST /api/jobs":
+    "NOTE: this legacy endpoint is deprecated. For uploads prefer POST /api/jobs/upload, which returns structured jobId/footageId " +
+    "and accepts an ISO timestamp with offset. Here startTime/endTime require yyyyMMddHHmmss in deployment-local time; " +
+    "spaced dates were observed to silently store an unrelated date despite a completed job. Invalid timestamp formats are rejected locally.",
+
   "PUT /api/jobs":
     "NOTE: this takes no job id and no camera filter — see the operation list for POST /api/jobs/{cameraId}, " +
     "which cancels one camera's job, before using this one.",
@@ -166,4 +175,23 @@ export const CAPABILITY_NOTES: Record<string, string> = {
 /** The note for an operation, or undefined when it needs no explaining. */
 export function capabilityNote(operationId: string): string | undefined {
   return CAPABILITY_NOTES[operationId];
+}
+
+// Operator guidance, separate from the measured API findings above. These are
+// instructions to callers, not field-level authorization or claims of rollback.
+const ACTION_GUIDANCE: Record<string, string> = {
+  "POST /api/cameras/{cameraId}/jobs":
+    "ACTION: start or stop only the camera targets authorized by the user. Stopping interrupts their analytics; read status before acting and verify the final state. A capacity failure does not authorize stopping another camera to free a slot.",
+  "PATCH /api/cameras/{cameraId}":
+    "ACTION: this operation permits camera configuration changes, not just renaming. Identify the camera and requested fields, read its current configuration, preserve unrelated fields, and read back the result. Do not infer permission to change connection, recording or analytics settings from a request to rename it. Inspect state before retrying an uncertain response.",
+  "PATCH /api/alertRules/{alertRuleId}":
+    "ACTION: this operation permits rule configuration changes, not just name/cooldown edits. Read the rule first and preserve its condition, camera associations, schedule, enabled state and delivery settings unless the user requested those changes. Treat enabling a rule or changing notification destinations as a separate consequential change. Read back the result before reporting success or retrying.",
+  "POST /api/alertTriggers":
+    "ACTION: this is a trigger-delivery test, not a preview. Use only the notification destination and payload authorized for the test; do not substitute real recipients or repeat an uncertain delivery automatically.",
+  "PUT /api/jobs":
+    "ACTION: this operation has deployment-wide job scope. A request concerning one camera or job does not authorize operating all jobs; use the narrower documented operation for that target.",
+};
+
+export function actionGuidanceNote(operationId: string): string | undefined {
+  return ACTION_GUIDANCE[operationId];
 }

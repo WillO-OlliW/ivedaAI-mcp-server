@@ -1,0 +1,8 @@
+{
+  "auth": "ivedaai",
+  "publicUrl": "https://mcp.customer.example/mcp",
+  "upstreamOrigin": "https://ivedaai.customer.example",
+  "port": 3000,
+  "clients": [],
+  "allowedWriteOperations": []
+}

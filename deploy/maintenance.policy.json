@@ -1,0 +1,7 @@
+{
+  "allowedWriteOperations": [
+    "POST /api/cameras/{cameraId}/jobs",
+    "PATCH /api/cameras/{cameraId}",
+    "PATCH /api/alertRules/{alertRuleId}"
+  ]
+}

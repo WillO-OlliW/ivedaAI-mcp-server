@@ -1,0 +1,11 @@
+# Replace this hostname before use; serve the MCP and native OAuth routes together.
+mcp.customer.example {
+    reverse_proxy 127.0.0.1:3000 {
+        # Keep public Host, Origin and Authorization intact. Identity is checked by MCP.
+        header_up -Forwarded
+        header_up -X-Forwarded-For
+        header_up -X-Forwarded-Host
+        header_up -X-Forwarded-Proto
+    }
+    # Access logging is deliberately not enabled: OAuth query strings contain codes.
+}
