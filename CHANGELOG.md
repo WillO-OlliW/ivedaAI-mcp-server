@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Team beta: browser connections
+
+- Add remote MCP over HTTPS with IvedaAI sign-in, PKCE, automatic ChatGPT client metadata discovery, and explicit read/change consent.
+- Support administrator-approved IvedaAI instances, with one server selected per connection and an initially empty server URL field.
+- Add camera and alert image cards, recent-alert summaries, and explicitly permitted camera-control operations.
+- Add optional encrypted persistent grants lasting up to seven days, with rotating refresh tokens and restart recovery. The default remains a one-hour in-memory connection.
+- Include deployment, onboarding, recovery, and beta-testing guidance. Runtime support is Node 22.16+ within 22.x, or Node 24+.
+
+Beta limitations: persistent grants target a single server process; high availability and unattended scheduled actions are not validated. Broader load, reboot/rollback, cross-instance isolation, additional MCP clients, and coworker onboarding acceptance remain follow-up checks. This merge is a team beta, not a claim of production certification or an npm publication.
+
 ### Production-readiness audit fixes
 
 - Preserve camera associations and abnormal-event subtypes when applying webhook triggers to
@@ -27,7 +37,7 @@ All notable changes to this project are documented here. The format follows
 - Never activate a name-matched camera after a failed create; report activation failures and missing
   create identifiers as errors. Keep guessed RTSP credentials out of warning text.
 - Reject ambiguous safety switches and malformed origin/limit settings; ignore local environment files.
-- Update vulnerable transitive dependencies within existing constraints. Require Node 22.12+ and
+- Update vulnerable transitive dependencies within existing constraints. Require Node 22.16+ and
   validate releases on Node 24; pin workflow actions and gate on high dependency vulnerabilities.
 - Replace the stale package file-count gate with an explicit allowlist. Correct publication instructions,
   read-only documentation, and measured tool-list context cost.
