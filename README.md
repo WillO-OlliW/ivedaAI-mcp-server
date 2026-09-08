@@ -1,3 +1,37 @@
+```text
+
+                         . . . SIGNAL // LOCKED . . .
+
+                         [CAM]        [ALERT]        [RULE]
+                            \            |            /
+                             \           |           /
+                    [FACE] ----\------ [ MCP ] ------/---- [LPR]
+                               \         |         /
+                                \        |        /
+                               [SEARCH]  |  [ANALYSIS]
+                                         |
+
+██╗██╗   ██╗███████╗██████╗  █████╗  █████╗ ██╗    ███╗   ███╗ ██████╗██████╗ 
+██║██║   ██║██╔════╝██╔══██╗██╔══██╗██╔══██╗██║    ████╗ ████║██╔════╝██╔══██╗
+██║██║   ██║█████╗  ██║  ██║███████║███████║██║    ██╔████╔██║██║     ██████╔╝
+██║╚██╗ ██╔╝██╔══╝  ██║  ██║██╔══██║██╔══██║██║    ██║╚██╔╝██║██║     ██╔═══╝ 
+██║ ╚████╔╝ ███████╗██████╔╝██║  ██║██║  ██║██║    ██║ ╚═╝ ██║╚██████╗██║     
+╚═╝  ╚═══╝  ╚══════╝╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝    ╚═╝     ╚═╝ ╚═════╝╚═╝     
+
+                     |                                       |
+                     |   VIDEO INTELLIGENCE <-> AI TOOLS     |
+                     +-------------------+-------------------+
+                                         |
+                               316 API OPERATIONS
+                                  63 MCP TOOLS
+
+                           :: DECODE // OBSERVE // ACT ::
+```
+
+                                                                                                         
+```
+                                                      
+
 # ivedaai-mcp-server
 
 [![CI](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml)
