@@ -28,73 +28,138 @@
 ```                                                                                                                                                
 # ivedaai-mcp-server
 
-[![CI](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml)
+[![CI](https://github.com/WillO-OlliW/ivedaAI-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/WillO-OlliW/ivedaAI-mcp-server/actions/workflows/ci.yml)
 
-An MCP server for the **IvedaAI** video analytics API. Point a client that launches local MCP
-processes, such as Claude Desktop or Claude Code, at your IvedaAI deployment and drive it in natural
-language: search footage, manage cameras and alert rules, run analysis jobs, work with face and
-licence-plate watchlists.
+Connect **IvedaAI 10.0** to an AI assistant to check cameras, summarize recent alerts, view
+snapshots and stored alert images, and perform explicitly permitted actions.
 
-**Transports:** the default command uses stdio. An [authenticated HTTP preview](docs/REMOTE.md)
-is available through `node dist/http.js /protected/path/customer.json`: read-only by default, with optional
-administrator-enabled actions and separate user consent to changes. It uses a fixed
-customer server and isolated user accounts. Customers can use their existing IvedaAI login;
-no separate sign-in vendor is required. An HTTPS reverse proxy and approved AI-client callback
-configuration are needed; real browser-client/TLS validation is still outstanding.
-See [browser connection requirements](docs/BROWSER-READINESS.md) for deployment options.
-Pilot teammates can use the [team quickstart](docs/TEAM-QUICKSTART.md); operators should start
-with the [per-user pilot route](docs/CUSTOMER-PILOT.md#recommended-team-pilot-individual-ivedaai-login).
-`IVEDAAI_BASE_URL` is the upstream application's address, not an MCP connection URL.
+**Status: team beta.** The authenticated browser connector is included in `main`. Actual ChatGPT
+pilot checks have passed sign-in, camera reads, recent alerts, rendered images and approved camera
+start/stop. A configured persistent connection also survived a service restart. These checks cover
+specific workflows, not every API operation or every deployment.
 
-The bundled API defines 316 operations. By default, 295 are exposed through 63 resource tools,
-plus three helper tools; 21 collection-wide DELETEs are withheld. See [why](docs/DESIGN.md#design).
+## Choose how to connect
 
-## Quickstart
+| Mode | Who it is for | Setup |
+| --- | --- | --- |
+| Hosted HTTP connector | Teams using ChatGPT or another compatible remote MCP client | An operator deploys the connector behind HTTPS; each user connects with their own IvedaAI account. |
+| Local stdio server | Clients that launch a local MCP process | Build the repository and configure the client to launch `dist/index.js`. |
 
-The npm package was not yet available when checked on 2026-09-04. Until the initial release is
-published, clone this repository, run `npm ci` and `npm run build`, then configure the client with `command: "node"`
-and `args: ["/absolute/path/to/ivedaAI-mcp-server/dist/index.js"]`.
+Each company runs its own connector. An operator can configure several approved IvedaAI instances,
+but **one connection selects one server**. This repository does not provide a public hosted service.
 
-After publication, this configuration lets `npx` fetch the package:
+### Connect to an existing hosted server
+
+No local installation is needed for users of an operator-hosted connector.
+
+1. Obtain the MCP URL from your operator, for example `https://mcp.customer.example/mcp`.
+2. Add it to your AI client's remote MCP connections and choose OAuth.
+3. For ChatGPT, leave manual client ID and secret fields blank. The connector validates ChatGPT's
+   published client metadata and callbacks automatically; users do not send callback URLs to the operator.
+   Other clients may require explicit registration.
+4. On the connector's HTTPS sign-in page, enter an approved **IvedaAI server URL** and your own
+   IvedaAI credentials. The server field starts empty. Credentials belong on this page, never in chat.
+5. Consent to the requested access, select the connection in a new conversation, and try a camera read.
+
+Available connection controls depend on the client's account and workspace settings. See the
+[team quickstart](docs/TEAM-QUICKSTART.md) for onboarding, test prompts and feedback guidance.
+
+Try:
+- “List three cameras with their IDs and current status. Change nothing.”
+- “Show the five most recent alerts from the last 24 hours and explain what each was for.”
+- “Show the current snapshot from [camera name].”
+- “Show the stored image for alert [ID].”
+
+Specify a timezone for time-window questions. A snapshot is a single frame, not a live video feed.
+Image rendering depends on client support and whether IvedaAI returns an image.
+
+### Deploy a connector for your company
+
+Start with the [hosting guide](docs/HOSTING.md) and [HTTP configuration](docs/REMOTE.md).
+Operators configure the public HTTPS endpoint, upstream connectivity and certificate trust,
+[approved IvedaAI servers](docs/SERVER-SELECTION.md), and any
+[permitted write operations](docs/CUSTOMER-WRITE-POLICY.md).
+
+The HTTP entry point is:
+
+```sh
+node /absolute/path/to/ivedaAI-mcp-server/dist/http.js /protected/path/customer.json
+```
+
+It binds to loopback behind a reverse proxy. The AI client's backend must be able to reach the MCP
+endpoint, and the MCP host must be able to reach the selected IvedaAI instance. A user's browser
+being on a VPN does not by itself give the remote AI service access to a private MCP endpoint.
+
+Existing IvedaAI login is supported without a separate identity provider. HTTP access defaults to
+read-only; writes require an operator allowlist, a write grant and user consent. IvedaAI account
+permissions remain authoritative. Local-file uploads and collection-wide deletes remain disabled
+over HTTP.
+
+**Connection lifetime:** the default is one hour in memory, ending on restart. Operators can enable
+[encrypted persistent grants](docs/PERSISTENT-GRANTS.md) for a fixed period of up to seven days,
+surviving ordinary service restarts. This retains IvedaAI credentials encrypted on the connector.
+Access tokens last up to five minutes and refresh tokens rotate within the fixed grant lifetime;
+use does not extend the deadline. Expiry, revocation or relevant configuration changes require
+another sign-in.
+
+### Build from source and use stdio
+
+Use Node 22.16.0+ in the 22.x line, or Node 24+:
+
+```sh
+git clone https://github.com/WillO-OlliW/ivedaAI-mcp-server.git
+cd ivedaAI-mcp-server
+npm ci
+npm run build
+```
+
+Configure a local MCP client to launch the built server:
 
 ```json
 {
   "mcpServers": {
     "ivedaai": {
-      "command": "npx",
-      "args": ["-y", "ivedaai-mcp-server"],
+      "command": "node",
+      "args": ["/absolute/path/to/ivedaAI-mcp-server/dist/index.js"],
       "env": {
         "IVEDAAI_BASE_URL": "https://ivedaai.example.com",
         "IVEDAAI_USERNAME": "your-username",
-        "IVEDAAI_PASSWORD": "your-password"
+        "IVEDAAI_PASSWORD": "your-password",
+        "IVEDAAI_READ_ONLY": "true"
       }
     }
   }
 }
 ```
 
-**Where that file lives:**
+Replace the path and account settings; protect this configuration because it contains credentials.
+For Windows JSON paths, use forward slashes or escaped backslashes. Restart the client after updating
+its configuration. The server speaks JSON-RPC over stdin/stdout and sends diagnostics to stderr.
 
-| client | path |
-| --- | --- |
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Claude Code | `claude mcp add ivedaai --env IVEDAAI_BASE_URL=… --env IVEDAAI_USERNAME=… --env IVEDAAI_PASSWORD=… -- npx -y ivedaai-mcp-server` |
+`IVEDAAI_BASE_URL` is the upstream **IvedaAI address**, not the MCP connection URL.
+The environment settings below apply to stdio; HTTP uses its separate protected configuration file.
 
-Restart the client, and ask it something like *"list the cameras that are currently offline"*.
+The npm registry returned 404 when checked on 2026-09-04, and the team-beta merge did not publish a
+package. Use the source installation above unless a published release has been independently verified.
 
-**Try it without a client:**
+## Beta scope and remaining checks
 
-```bash
-IVEDAAI_BASE_URL=https://ivedaai.example.com \
-IVEDAAI_USERNAME=you IVEDAAI_PASSWORD=secret \
-npx -y ivedaai-mcp-server
-```
+- Coworker onboarding, two real simultaneous server connections, second-instance alert/image reads,
+  full VPS reboot/rollback, broader load and other AI clients still need acceptance testing.
+- Persistent grants support one process; high-availability replication is not implemented.
+- IvedaAI MFA challenges and federated sign-in flows are unsupported; complete required account setup
+  and first-login password changes in IvedaAI first.
+- Unattended scheduled connector writes and their approval behavior are unverified. Longer-lived
+  authorization does not establish that an AI client's scheduler supports camera-control actions.
+- Coordinate write tests using explicitly approved idle cameras. Confirm the final state and inspect
+  uncertain results before retrying. An operation allowlist does not restrict specific camera IDs.
 
-It speaks JSON-RPC over stdin/stdout and logs a startup line to stderr. `--help` prints the
-configuration reference; `--version` prints the version.
+The bundled API defines 316 operations. The default stdio surface exposes 295 through 63 resource
+tools plus three helpers; 21 collection-wide DELETEs are withheld. HTTP has a narrower surface based
+on its policy and includes dedicated image tools. See [design](docs/DESIGN.md#design) and
+[HTTP details](docs/REMOTE.md) for the applicable limits.
 
-## Read-only first
+## Stdio: read-only first
 
 If you are evaluating this, or connecting it to anything you would not want to write to, start here:
 
@@ -106,7 +171,7 @@ Mutating operations are withheld from the tool list. Reads include GETs and the 
 query-only POSTs for alert statistics, search, and latest alerts. The two write-oriented convenience
 tools are withheld too.
 
-## Configuration
+## Stdio configuration
 
 Only the first three are required.
 
@@ -154,7 +219,7 @@ See [SECURITY.md](SECURITY.md) for the rest of the defaults, and for what leaves
 
 ## Using it
 
-Every tool takes an `operation` and the arguments that operation needs:
+Grouped resource tools take an `operation` and the arguments that operation needs; dedicated helpers have their own schemas:
 
 ```json
 { "operation": "GET /api/cameras", "query": { "size": 20, "nameContains": "lobby" } }
@@ -182,7 +247,7 @@ CI covers the minimum supported Node 22 version and Node 24.
 ## Production operation
 
 For stdio, each MCP client starts its own process and communicates over stdin/stdout; that entry
-point has no HTTP listener. The separate [HTTP preview](docs/REMOTE.md) uses existing IvedaAI login
+point has no HTTP listener. The separate [HTTP connector](docs/REMOTE.md) uses existing IvedaAI login
 behind an operator-managed HTTPS proxy. Neither mode provisions a database, container or separate
 health endpoint. Successful MCP initialization and a small authorized read provide integration checks.
 
