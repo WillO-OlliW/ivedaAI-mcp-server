@@ -1,5 +1,4 @@
 ```text
-
                          . . . SIGNAL // LOCKED . . .
 
                          [CAM]        [ALERT]        [RULE]
@@ -26,12 +25,7 @@
                                   63 MCP TOOLS
 
                            :: DECODE // OBSERVE // ACT ::
-```
-
-                                                                                                         
-```
-                                                      
-
+```                                                                                                                                                
 # ivedaai-mcp-server
 
 [![CI](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml/badge.svg)](https://github.com/WillORepO/ivedaAI-mcp-server/actions/workflows/ci.yml)
